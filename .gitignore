@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Persistent runtime data (db, config, input) — see PERSIST_DIR
+persist/
+
+# Legacy data locations (pre-PERSIST_DIR)
+data/
+config/
+input/
+
+# Generated sample data
+samples/*.eml
+samples/needs-review.json
+
+# Logs / debug
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Test tooling
+.playwright-mcp/
+
+# Claude Code local settings (personal, not shared)
+.claude/settings.local.json
