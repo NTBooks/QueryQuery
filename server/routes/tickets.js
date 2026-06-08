@@ -82,7 +82,9 @@ r.post('/', (req, res) => {
 
 // --- board archiving (these MUST precede the /:id routes) ---
 r.post('/archive', (req, res) => {
-  const out = repo.archiveBoard(req.user.id, String(req.body?.comment || ''));
+  // Optional status filter (e.g. archive only 'reject' cards); otherwise archive all.
+  const status = STATUS_KEYS.includes(req.body?.status) ? req.body.status : null;
+  const out = repo.archiveBoard(req.user.id, String(req.body?.comment || ''), status);
   bumpRevision();
   res.json(out);
 });

@@ -106,7 +106,7 @@ export const api = {
   remove: (id) => j(`/api/tickets/${id}`, { method: 'DELETE' }),
   scan: () => j('/api/ingest', { method: 'POST', timeoutMs: 120000 }),
   rescore: () => j('/api/ingest?rescore=1', { method: 'POST', timeoutMs: 120000 }),
-  archiveBoard: (comment) => j('/api/tickets/archive', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ comment }) }),
+  archiveBoard: (comment, status) => j('/api/tickets/archive', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ comment, status }) }),
   listArchives: () => j('/api/tickets/archives'),
   restoreArchive: (iter) => j(`/api/tickets/archives/${iter}/restore`, { method: 'POST' }),
   llmStatus: () => j('/api/llm/status', { timeoutMs: 12000 }),

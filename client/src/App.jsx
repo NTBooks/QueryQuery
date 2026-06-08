@@ -174,6 +174,24 @@ export default function App() {
     }
   };
 
+  // Quick-archive only the rejected cards (restorable, like a board archive).
+  const archiveRejected = async () => {
+    setBusy(true);
+    try {
+      const out = await api.archiveBoard('Rejected', 'reject');
+      await loadTickets();
+      toast({
+        title: out.count ? `Archived ${out.count} rejected card(s)` : 'No rejected cards to archive',
+        description: out.count ? `Iteration #${out.iteration} — restore from Archive ▸ Archive board…` : undefined,
+        status: out.count ? 'success' : 'info',
+      });
+    } catch (err) {
+      toast({ title: 'Archive failed', description: err.message, status: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const updateStatus = useCallback(async (id, status) => {
     // optimistic
     setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -360,6 +378,7 @@ export default function App() {
             onPaste={() => setView('paste')}
             onRescore={rescoreAll}
             onArchive={archiveModal.onOpen}
+            onArchiveRejected={archiveRejected}
           />
         )}
         {view === 'paste' && (

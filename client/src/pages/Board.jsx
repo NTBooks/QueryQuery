@@ -1,16 +1,16 @@
 import { useMemo, useState } from 'react';
 import {
   Box, Flex, Grid, GridItem, HStack, Heading, Text, Badge, Input, InputGroup, InputLeftElement,
-  IconButton, Button, Stack, Spacer, Select,
+  IconButton, Button, Stack, Spacer, Select, Menu, MenuButton, MenuList, MenuItem,
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronDown, FiChevronRight, FiInbox, FiFolder, FiFilePlus, FiRefreshCw, FiArchive } from 'react-icons/fi';
+import { FiSearch, FiChevronDown, FiChevronRight, FiInbox, FiFolder, FiFilePlus, FiRefreshCw, FiArchive, FiXCircle } from 'react-icons/fi';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import TicketCard from '../components/TicketCard.jsx';
 import { bandColor } from '../lib/format.js';
 
 const CELL_CAP = 80;
 
-export default function Board({ meta, config, tickets, staleCount = 0, busy, profiles = [], activeProfile = '', onSelectProfile, onStatus, onOpen, onScan, onShowFolder, onPaste, onRescore, onArchive }) {
+export default function Board({ meta, config, tickets, staleCount = 0, busy, profiles = [], activeProfile = '', onSelectProfile, onStatus, onOpen, onScan, onShowFolder, onPaste, onRescore, onArchive, onArchiveRejected }) {
   const states = meta?.states || [];
   const bands = config?.scoreBands || [];
   const [query, setQuery] = useState('');
@@ -58,6 +58,9 @@ export default function Board({ meta, config, tickets, staleCount = 0, busy, pro
     for (const t of filtered) if (totals[t.status] != null) totals[t.status] += 1;
     return totals;
   }, [filtered, states]);
+
+  // Count of all rejected cards (unaffected by search) — what "Archive Rejected" acts on.
+  const rejectCount = useMemo(() => tickets.filter((t) => t.status === 'reject').length, [tickets]);
 
   const onDragEnd = (result) => {
     const { destination, draggableId } = result;
@@ -117,7 +120,17 @@ export default function Board({ meta, config, tickets, staleCount = 0, busy, pro
         <Spacer />
         <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiFilePlus />} onClick={onPaste}>Paste</Button>
         <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiRefreshCw />} onClick={onRescore} isLoading={busy}>Re-score</Button>
-        <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiArchive />} onClick={onArchive}>Archive</Button>
+        <Menu>
+          <MenuButton as={Button} size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiArchive />} rightIcon={<FiChevronDown />}>
+            Archive
+          </MenuButton>
+          <MenuList>
+            <MenuItem icon={<FiArchive />} onClick={onArchive}>Archive board…</MenuItem>
+            <MenuItem icon={<FiXCircle />} onClick={onArchiveRejected} isDisabled={!rejectCount}>
+              Archive Rejected{rejectCount ? ` (${rejectCount})` : ''}
+            </MenuItem>
+          </MenuList>
+        </Menu>
         <Button
           size="sm" variant="ghost" colorScheme="gray"
           leftIcon={allCollapsed ? <FiChevronDown /> : <FiChevronRight />}

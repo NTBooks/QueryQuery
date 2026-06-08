@@ -40,6 +40,7 @@ const stmts = {
   // board archiving
   maxIter: db.prepare('SELECT MAX(archived_iteration) AS m FROM tickets WHERE owner_id = ?'),
   archiveActive: db.prepare('UPDATE tickets SET archived_iteration=@iter, archive_comment=@comment, archived_at=@now WHERE owner_id=@owner AND archived_iteration IS NULL'),
+  archiveActiveStatus: db.prepare('UPDATE tickets SET archived_iteration=@iter, archive_comment=@comment, archived_at=@now WHERE owner_id=@owner AND archived_iteration IS NULL AND status=@status'),
   listArch: db.prepare('SELECT archived_iteration AS iteration, COUNT(*) AS count, archive_comment AS comment, MAX(archived_at) AS at FROM tickets WHERE owner_id = ? AND archived_iteration IS NOT NULL GROUP BY archived_iteration ORDER BY archived_iteration DESC'),
   restoreArch: db.prepare('UPDATE tickets SET archived_iteration=NULL, archive_comment=NULL, archived_at=NULL WHERE owner_id=? AND archived_iteration=?'),
   // users
@@ -123,10 +124,14 @@ export const repo = {
   setUserProfiles: (id, json) => stmts.setUserProfilesStmt.run(json, id),
 
   // --- board archiving ---
-  archiveBoard: (ownerId, comment) => {
+  // Archive all active cards, or only those with a given status (e.g. 'reject').
+  archiveBoard: (ownerId, comment, status) => {
     const iter = (stmts.maxIter.get(ownerId)?.m || 0) + 1;
     const now = new Date().toISOString();
-    const info = stmts.archiveActive.run({ iter, comment: comment || '', now, owner: ownerId });
+    const params = { iter, comment: comment || '', now, owner: ownerId };
+    const info = status
+      ? stmts.archiveActiveStatus.run({ ...params, status })
+      : stmts.archiveActive.run(params);
     return { iteration: iter, count: info.changes };
   },
   listArchives: (ownerId) => stmts.listArch.all(ownerId),
