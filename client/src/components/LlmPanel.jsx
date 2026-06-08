@@ -13,14 +13,19 @@ function LlmError({ status }) {
   return (
     <Alert status="error" borderRadius="md" flexDirection="column" alignItems="stretch" gap={2} fontSize="sm">
       <HStack><AlertIcon /><Text fontWeight="600">{status.reachable ? `Request failed: ${status.error}` : `Not reachable — ${status.error || 'is the server running?'}`}</Text></HStack>
-      {d.detectedIp && (
+      {d.isCloudflareAccess ? (
         <Text pl={6}>
-          Looks like an IP allow-list block. Add this IP to the allow-list: <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code>
+          Behind <b>Cloudflare Access</b> (Zero Trust). Add {d.detectedIp ? <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code> : 'your server’s egress IP'} to
+          an Access <b>bypass</b> policy — or configure a service token. (A plain IP allow-list won’t cover Access.)
         </Text>
-      )}
-      {(d.url || d.status || d.contentType || d.server) && (
+      ) : d.detectedIp ? (
+        <Text pl={6}>
+          Looks like an IP allow-list block. Add this IP: <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code>
+        </Text>
+      ) : null}
+      {(d.url || d.status || d.contentType || d.server || d.cfRay) && (
         <Text pl={6} fontSize="xs" color="gray.700">
-          {d.status ? `${d.status} ${d.statusText || ''} · ` : ''}{d.contentType || ''}{d.server ? ` · server: ${d.server}` : ''}
+          {d.status ? `${d.status} ${d.statusText || ''} · ` : ''}{d.contentType || ''}{d.server ? ` · server: ${d.server}` : ''}{d.cfRay ? ` · ray: ${d.cfRay}` : ''}
           {d.url ? <Text as="span" color="gray.500"> · {d.url}</Text> : null}
         </Text>
       )}

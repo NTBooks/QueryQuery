@@ -21,7 +21,37 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
   }
 }
 
-const IP_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
+// Strict IPv4 octets (0-255, no leading zeros) so we don't match CSS/SVG numbers.
+const IPV4 = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}';
+// IPv6 (full + compressed forms). Only matched next to an IP label (below) to
+// avoid CSS false positives like "::before".
+const IPV6 =
+  '(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|' +
+  '(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|' +
+  '(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|' +
+  '(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|' +
+  '::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4})';
+const LABEL = "(?:client[_-]?ip|your ip(?: address)?|ip address|cf-connecting-ip|remote_addr)[\"'\\s:=>]{0,16}";
+// Grab the whole IP-ish token after a label, then validate with ANCHORED regexes
+// (anchoring makes IPv6 backtracking pick the full address, not a `::` prefix).
+const LABELED_TOKEN = new RegExp(`${LABEL}([0-9A-Fa-f:.]{2,45})`, 'i');
+const V4_RE = new RegExp(`^${IPV4}$`);
+const V6_RE = new RegExp(`^${IPV6}$`);
+const STRICT_V4 = new RegExp(IPV4, 'g');
+
+/** Find the most likely client IP (v4 or v6) in an error page, avoiding false positives. */
+function findClientIp(body) {
+  if (!body) return null;
+  const m = body.match(LABELED_TOKEN); // a labeled IP (v4 or v6) is the safest signal
+  if (m) {
+    const tok = m[1].replace(/[.:]+$/, ''); // trim trailing punctuation
+    if (V6_RE.test(tok) || V4_RE.test(tok)) return tok;
+  }
+  // Standalone fallback is IPv4-only (a bare IPv6 regex would match CSS like "::before").
+  const all = body.match(STRICT_V4) || [];
+  const isPrivate = (ip) => /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|255\.)/.test(ip);
+  return all.find((ip) => !isPrivate(ip)) || all[0] || null;
+}
 
 /** Probe LM Studio + enumerate models. Never throws. On failure, returns full detail. */
 export async function llmStatus(config) {
@@ -36,7 +66,8 @@ export async function llmStatus(config) {
         /* ignore */
       }
       // Cloudflare / WAF blocks often return an HTML page naming the IP to allow.
-      const ip = (body.match(IP_RE) || [])[0] || null;
+      const detectedIp = findClientIp(body);
+      const isCloudflareAccess = /cloudflare access/i.test(body) || /\/cdn-cgi\/access\//i.test(body);
       return {
         reachable: true,
         models: [],
@@ -48,8 +79,10 @@ export async function llmStatus(config) {
           statusText: res.statusText || '',
           contentType: res.headers.get('content-type') || '',
           server: res.headers.get('server') || '',
-          detectedIp: ip,
-          body: body.slice(0, 4000),
+          cfRay: res.headers.get('cf-ray') || '',
+          isCloudflareAccess,
+          detectedIp,
+          body: body.slice(0, 16000),
         },
       };
     }
