@@ -51,12 +51,14 @@ function LlmError({ status }) {
   );
 }
 
-const DEFAULT_LLM = { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1', model: '', apiKey: 'lm-studio' };
+const DEFAULT_LLM = { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1', model: '' };
 
 export default function LlmPanel() {
   const toast = useToast();
   const [llm, setLlm] = useState(DEFAULT_LLM);
   const [loaded, setLoaded] = useState(null);
+  const [apiKey, setApiKey] = useState(''); // write-only: blank = keep the saved key
+  const [apiKeySet, setApiKeySet] = useState(false);
   const [status, setStatus] = useState(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,20 +75,31 @@ export default function LlmPanel() {
     }
   };
 
+  const applyConfig = (l) => {
+    const v = { enabled: !!l?.enabled, baseUrl: l?.baseUrl || DEFAULT_LLM.baseUrl, model: l?.model || '' };
+    setLoaded(v);
+    setLlm(v);
+    setApiKeySet(!!l?.apiKeySet);
+  };
+
   useEffect(() => {
     api.getLlmConfig()
-      .then(({ llm: l }) => { const v = { ...DEFAULT_LLM, ...(l || {}) }; setLoaded(v); setLlm(v); })
+      .then(({ llm: l }) => applyConfig(l))
       .catch(() => setLoaded(DEFAULT_LLM));
     check();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = loaded && ['enabled', 'baseUrl', 'model', 'apiKey'].some((k) => (llm[k] ?? '') !== (loaded[k] ?? ''));
+  const dirty =
+    (loaded && ['enabled', 'baseUrl', 'model'].some((k) => (llm[k] ?? '') !== (loaded[k] ?? ''))) || apiKey !== '';
 
   const save = async () => {
     setSaving(true);
     try {
-      const { llm: l } = await api.saveLlmConfig(llm);
-      setLoaded({ ...DEFAULT_LLM, ...l });
+      const payload = { ...llm };
+      if (apiKey) payload.apiKey = apiKey; // only send a key when the user typed one
+      const { llm: l } = await api.saveLlmConfig(payload);
+      applyConfig(l);
+      setApiKey('');
       toast({ title: 'LLM settings saved', status: 'success' });
       check();
     } catch (e) {
@@ -123,7 +136,13 @@ export default function LlmPanel() {
 
           <FormControl>
             <FormLabel>API key (usually not required)</FormLabel>
-            <Input value={llm.apiKey || ''} onChange={(e) => setLlm({ ...llm, apiKey: e.target.value })} placeholder="lm-studio" />
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={apiKeySet ? '•••••••• (saved)' : 'lm-studio'}
+            />
+            {apiKeySet && <FormHelperText>A key is saved. Type a new one to replace it; leave blank to keep it.</FormHelperText>}
           </FormControl>
 
           <Divider />

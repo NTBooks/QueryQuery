@@ -81,10 +81,13 @@ export function getUserConfig(userId) {
   return getConfig();
 }
 
-/** Save a user's scoring config. The LLM block is global, so it's stripped here. */
+/** Save a user's scoring config. The LLM block is global, so it's stripped here.
+ *  inputFolder is also stripped: it's a filesystem path, not a per-user scoring
+ *  knob, and letting users set it is a path-traversal vector (see paths.inputDir). */
 export function setUserConfig(userId, cfg) {
   const merged = mergeDefaults(cfg || {});
   delete merged.llm;
+  delete merged.inputFolder;
   repo.setUserConfig(userId, JSON.stringify(merged));
   merged.llm = getConfig().llm;
   return merged;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Flex, Box, VStack, Heading, Text, FormControl, FormLabel, Input, Button, Alert, AlertIcon, Link as CLink,
 } from '@chakra-ui/react';
@@ -11,6 +11,15 @@ export default function Login({ onAuthed }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [canRegister, setCanRegister] = useState(false);
+
+  // Whether self-registration is enabled drives the "Register" link (closed by
+  // default on a public server). Fail closed if the check itself fails.
+  useEffect(() => {
+    api.registrationOpen()
+      .then(({ open }) => setCanRegister(!!open))
+      .catch(() => setCanRegister(false));
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -53,15 +62,14 @@ export default function Login({ onAuthed }) {
             </VStack>
           </form>
 
-          <Text fontSize="sm" color="gray.500" textAlign="center">
-            {mode === 'login' ? (
-              <>No account? <CLink color="brand.600" onClick={() => { setMode('register'); setError(''); }}>Register</CLink></>
-            ) : (
-              <>Have an account? <CLink color="brand.600" onClick={() => { setMode('login'); setError(''); }}>Sign in</CLink></>
-            )}
-          </Text>
-          {mode === 'login' && (
-            <Text fontSize="xs" color="gray.400" textAlign="center">First run? Sign in with <b>admin</b> / <b>admin</b>.</Text>
+          {canRegister && (
+            <Text fontSize="sm" color="gray.500" textAlign="center">
+              {mode === 'login' ? (
+                <>No account? <CLink color="brand.600" onClick={() => { setMode('register'); setError(''); }}>Register</CLink></>
+              ) : (
+                <>Have an account? <CLink color="brand.600" onClick={() => { setMode('login'); setError(''); }}>Sign in</CLink></>
+              )}
+            </Text>
           )}
         </VStack>
       </Box>

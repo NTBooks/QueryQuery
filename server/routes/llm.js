@@ -4,20 +4,58 @@ import { getConfig, setConfig } from '../configStore.js';
 import { requireAdmin } from '../auth.js';
 import { llmStatus, chatComplete, describeLlmError } from '../services/lmstudio.js';
 import { extractComponents } from '../services/components.js';
+import { rateLimit } from '../rateLimit.js';
 
 const r = Router();
 
+// The LLM proxy is expensive (one local model = one backend) and could be used to
+// exhaust the server. Throttle per user and cap global concurrency; shed with 429/503.
+const llmRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  key: (req) => req.user?.id || req.ip,
+  message: 'Too many AI requests — wait a moment and try again.',
+});
+
+let llmActive = 0;
+const LLM_MAX_CONCURRENT = Number(process.env.LLM_MAX_CONCURRENT) || 3;
+function llmConcurrencyGate(req, res, next) {
+  if (llmActive >= LLM_MAX_CONCURRENT) {
+    res.set('Retry-After', '5');
+    return res.status(503).json({ error: 'The model is busy. Please retry in a moment.' });
+  }
+  llmActive += 1;
+  let released = false;
+  const release = () => { if (!released) { released = true; llmActive -= 1; } };
+  res.on('finish', release);
+  res.on('close', release);
+  return next();
+}
+const llmGuards = [llmRateLimit, llmConcurrencyGate];
+
 r.get('/status', async (req, res) => {
-  res.json(await llmStatus(getConfig()));
+  // Verbose connection diagnostics are admin-only (they expose egress IPs etc.).
+  res.json(await llmStatus(getConfig(), { diagnostics: req.user.role === 'admin' }));
 });
 
 // The LLM connection is GLOBAL (admin-managed); everyone uses the same model.
-r.get('/config', (req, res) => res.json({ llm: getConfig().llm }));
+// The apiKey is write-only — never echo it back, just whether one is set.
+function publicLlm(llm = {}) {
+  return { enabled: !!llm.enabled, baseUrl: llm.baseUrl || '', model: llm.model || '', apiKeySet: !!llm.apiKey };
+}
+
+r.get('/config', (req, res) => res.json({ llm: publicLlm(getConfig().llm) }));
 r.put('/config', requireAdmin, (req, res) => {
-  const llm = req.body?.llm || req.body || {};
+  const inc = req.body?.llm || req.body || {};
   const cfg = getConfig();
-  const saved = setConfig({ ...cfg, llm: { ...cfg.llm, ...llm } });
-  res.json({ llm: saved.llm });
+  const next = { ...cfg.llm };
+  if (typeof inc.enabled === 'boolean') next.enabled = inc.enabled;
+  if (typeof inc.baseUrl === 'string') next.baseUrl = inc.baseUrl;
+  if (typeof inc.model === 'string') next.model = inc.model;
+  // A blank/absent apiKey leaves the stored one untouched (don't clobber the secret).
+  if (typeof inc.apiKey === 'string' && inc.apiKey !== '') next.apiKey = inc.apiKey;
+  const saved = setConfig({ ...cfg, llm: next });
+  res.json({ llm: publicLlm(saved.llm) });
 });
 
 // Resolve which model to use: explicit request > configured > whatever LM Studio has loaded.
@@ -40,7 +78,7 @@ function summaryMessages(t) {
   ];
 }
 
-r.post('/summarize', async (req, res) => {
+r.post('/summarize', llmGuards, async (req, res) => {
   const config = getConfig();
   const t = repo.getRawByIdOwned(Number(req.body?.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
@@ -77,7 +115,7 @@ const TRIAGE_SCHEMA = {
   },
 };
 
-r.post('/triage', async (req, res) => {
+r.post('/triage', llmGuards, async (req, res) => {
   const config = getConfig();
   const t = repo.getRawByIdOwned(Number(req.body?.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
@@ -152,7 +190,7 @@ const EXTRACT_SYS =
   '- themes, keywords: short descriptive phrases about the book.\n' +
   "Never output placeholder text such as 'unknown', 'none', or 'not detected'.";
 
-r.post('/extract', async (req, res) => {
+r.post('/extract', llmGuards, async (req, res) => {
   const config = getConfig();
   let text;
   let subject = '';

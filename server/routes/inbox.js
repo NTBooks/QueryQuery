@@ -10,6 +10,7 @@ import { bumpRevision } from '../services/revision.js';
 const r = Router();
 
 const MAX_EML_BYTES = 2 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 200; // cap a single drag-and-drop batch (the 25mb body limit bounds total size)
 
 r.get('/', (req, res) => {
   const config = getConfig();
@@ -55,6 +56,9 @@ r.post('/upload', async (req, res) => {
 
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
   if (!files.length) return res.status(400).json({ error: 'No files provided.' });
+  if (files.length > MAX_UPLOAD_FILES) {
+    return res.status(413).json({ error: `Too many files at once (max ${MAX_UPLOAD_FILES}). Upload in smaller batches.` });
+  }
 
   let written = 0;
   const errors = [];

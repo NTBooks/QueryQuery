@@ -18,10 +18,21 @@ export const DB_PATH = path.join(PERSIST_DIR, 'queryquery.db');
 export const CONFIG_PATH = path.join(PERSIST_DIR, 'queryquery.config.json');
 export const SAMPLES_DIR = path.join(ROOT, 'samples'); // dev artifacts stay in the repo
 
-/** Resolve the base input folder. Relative paths are relative to PERSIST_DIR. */
+/**
+ * Resolve the base input folder. Relative paths are relative to PERSIST_DIR.
+ * Containment: a (user-supplied) inputFolder must never escape PERSIST_DIR — an
+ * absolute path elsewhere or `../` traversal falls back to the default <persist>/input,
+ * so config can't be used to read/write/delete files outside the data sandbox.
+ */
 export function inputDir(config) {
+  const base = path.resolve(PERSIST_DIR);
   const f = (config && config.inputFolder) || './input';
-  return path.isAbsolute(f) ? f : path.resolve(PERSIST_DIR, f);
+  const resolved = path.isAbsolute(f) ? path.resolve(f) : path.resolve(base, f);
+  // path.relative normalizes separators/drive case; a contained path yields a
+  // relative result that is neither absolute nor starts with "..".
+  const rel = path.relative(base, resolved);
+  const contained = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  return contained ? resolved : path.join(base, 'input');
 }
 
 function safeId(id) {

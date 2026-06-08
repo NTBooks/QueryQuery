@@ -5,7 +5,7 @@ import repo from '../repo.js';
 import { STATUS_KEYS } from '../../shared/constants.js';
 import { getUserConfig, configHash, userDataDir } from '../configStore.js';
 import { analyze } from '../services/ingest.js';
-import { certifyText, resolveCredentials } from '../services/chainletter.js';
+import { certifyText, resolveCredentials, redactUrl } from '../services/chainletter.js';
 import { bumpRevision } from '../services/revision.js';
 
 const r = Router();
@@ -148,7 +148,7 @@ r.post('/:id/certify', async (req, res) => {
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[chainletter] certify ticket ${raw.id} (text ${text.length} chars) via ${cl.webhookUrl} group=${cl.groupId || '∅'}`);
+  console.log(`[chainletter] certify ticket ${raw.id} (text ${text.length} chars) via ${redactUrl(cl.webhookUrl)} group=${cl.groupId || '∅'}`);
 
   try {
     const cert = await certifyText(cl, { text, name: `query-${raw.id}` });
@@ -176,7 +176,7 @@ r.post('/:id/certify', async (req, res) => {
   } catch (err) {
     const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
     const debug = {
-      endpoint: err.endpoint || cl.webhookUrl,
+      endpoint: redactUrl(err.endpoint || cl.webhookUrl),
       method: err.method || null,
       status: err.status || null,
       detail: err.detail || null,

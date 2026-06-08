@@ -8,7 +8,9 @@ import open from 'open';
 import getPort, { portNumbers } from 'get-port';
 
 import { ROOT, getConfig } from './configStore.js';
-import './db.js'; // runs migration on import
+import './db.js'; // runs migration + first-run admin seed on import
+import repo from './repo.js';
+import { verifyPasswordSync } from './password.js';
 import metaRouter from './routes/meta.js';
 import configRouter from './routes/config.js';
 import ticketsRouter from './routes/tickets.js';
@@ -20,28 +22,63 @@ import llmRouter from './routes/llm.js';
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
 import { requireAuth } from './auth.js';
+import securityHeaders from './securityHeaders.js';
 import { startWatcher } from './services/watcher.js';
 import { getRevision } from './services/revision.js';
 
 const isDev = process.env.NODE_ENV === 'development';
 
 const app = express();
-app.use(express.json({ limit: '25mb' }));
+app.disable('x-powered-by');
+
+// Behind a reverse proxy (the documented Coolify/Docker deploy) so req.ip / rate
+// limiting use the real client IP, not the proxy's. Override with TRUST_PROXY
+// (a hop count, or true/false). Default: trust one hop in production, none in dev.
+const trustProxyEnv = process.env.TRUST_PROXY;
+if (trustProxyEnv !== undefined) {
+  const n = Number(trustProxyEnv);
+  app.set('trust proxy', Number.isFinite(n) ? n : trustProxyEnv === 'true');
+} else if (!isDev) {
+  app.set('trust proxy', 1);
+}
+
+app.use(securityHeaders);
+
+// Right-sized JSON body limits per route group (no blanket 25mb). Only the .eml
+// upload route needs real headroom; auth bodies are tiny.
+const authBody = express.json({ limit: '16kb' });
+const tinyBody = express.json({ limit: '64kb' });
+const stdBody = express.json({ limit: '1mb' });
+const uploadBody = express.json({ limit: '25mb' });
+
+// Fail closed in production if an existing admin still uses the default password.
+function assertNoDefaultAdmin() {
+  if (process.env.QQ_ALLOW_DEFAULT_ADMIN === '1') return;
+  const admin = repo.getUserByUsername('admin');
+  if (!admin || !verifyPasswordSync('admin', admin.pw_salt, admin.pw_hash)) return;
+  const bar = '='.repeat(60);
+  const msg = 'The "admin" account still uses the default password "admin".';
+  if (!isDev) {
+    console.error(`\n${bar}\n  SECURITY: ${msg}\n  Refusing to start in production. Change the password, or set\n  QQ_ALLOW_DEFAULT_ADMIN=1 to override (NOT recommended).\n${bar}\n`);
+    process.exit(1);
+  }
+  console.warn(`  ⚠ SECURITY: ${msg} Change it before deploying.`);
+}
 
 // Public endpoints.
 app.get('/api/health', (req, res) => res.json({ ok: true }));
-app.use('/api/auth', authRouter); // login/register public; /me + /password require auth internally
+app.use('/api/auth', authBody, authRouter); // login/register public; /me + /password require auth internally
 
 // Everything below requires a logged-in user.
-app.use('/api/users', requireAuth, usersRouter);
+app.use('/api/users', requireAuth, tinyBody, usersRouter);
 app.use('/api/meta', requireAuth, metaRouter);
-app.use('/api/config', requireAuth, configRouter);
-app.use('/api/tickets', requireAuth, ticketsRouter);
-app.use('/api/ingest', requireAuth, ingestRouter);
-app.use('/api/analyze', requireAuth, analyzeRouter);
-app.use('/api/inbox', requireAuth, inboxRouter);
-app.use('/api/chainletter', requireAuth, chainletterRouter);
-app.use('/api/llm', requireAuth, llmRouter);
+app.use('/api/config', requireAuth, stdBody, configRouter);
+app.use('/api/tickets', requireAuth, stdBody, ticketsRouter);
+app.use('/api/ingest', requireAuth, tinyBody, ingestRouter);
+app.use('/api/analyze', requireAuth, stdBody, analyzeRouter);
+app.use('/api/inbox', requireAuth, uploadBody, inboxRouter);
+app.use('/api/chainletter', requireAuth, tinyBody, chainletterRouter);
+app.use('/api/llm', requireAuth, stdBody, llmRouter);
 app.get('/api/revision', requireAuth, (req, res) => res.json({ rev: getRevision() }));
 
 // Serve the built client (production). In dev, Vite serves it and proxies /api.
@@ -60,6 +97,7 @@ if (!isDev) {
 }
 
 async function main() {
+  assertNoDefaultAdmin(); // refuse to expose a default-credential admin in production
   getConfig(); // ensure config + folders exist
   startWatcher(); // auto-ingest .eml files dropped into the input folder
   const port = process.env.PORT

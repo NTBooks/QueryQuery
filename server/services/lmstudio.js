@@ -92,8 +92,12 @@ async function detectEgress(url) {
   };
 }
 
-/** Probe LM Studio + enumerate models. Never throws. On failure, returns full detail. */
-export async function llmStatus(config) {
+/**
+ * Probe LM Studio + enumerate models. Never throws. The verbose failure `detail`
+ * (egress IPs, upstream body, headers) leaks server infra info and triggers
+ * outbound probes, so it is built ONLY when diagnostics=true (admin status check).
+ */
+export async function llmStatus(config, { diagnostics = false } = {}) {
   const url = `${baseUrl(config)}/models`;
   try {
     const res = await fetchWithTimeout(url, { headers: authHeaders(config) }, 8000);
@@ -105,12 +109,14 @@ export async function llmStatus(config) {
         /* ignore */
       }
       const isCloudflareAccess = /cloudflare access/i.test(body) || /\/cdn-cgi\/access\//i.test(body);
-      return {
+      const result = {
         reachable: true,
         models: [],
         loadedModel: null,
         error: `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`,
-        detail: {
+      };
+      if (diagnostics) {
+        result.detail = {
           url,
           status: res.status,
           statusText: res.statusText || '',
@@ -121,8 +127,9 @@ export async function llmStatus(config) {
           egress: await detectEgress(url), // {host, v4, v6} — the IP(s) to allow-list
           labeledIp: findLabeledIp(body), // only if the page explicitly states it
           body: body.slice(0, 16000),
-        },
-      };
+        };
+      }
+      return result;
     }
     const data = await res.json();
     const all = (data.data || []).map((m) => ({ id: m.id, state: m.state || null, type: m.type || null }));
@@ -132,13 +139,16 @@ export async function llmStatus(config) {
     const loaded = models.find((m) => m.state === 'loaded') || models[0] || null;
     return { reachable: true, models, loadedModel: loaded ? loaded.id : null };
   } catch (err) {
-    return {
+    const result = {
       reachable: false,
       models: [],
       loadedModel: null,
       error: err.name === 'AbortError' ? 'LM Studio not reachable (timeout)' : err.message,
-      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '', egress: await detectEgress(url) },
     };
+    if (diagnostics) {
+      result.detail = { url, message: err.message, cause: err.cause ? String(err.cause) : '', egress: await detectEgress(url) };
+    }
+    return result;
   }
 }
 
@@ -165,7 +175,7 @@ export async function chatComplete(config, { messages, model, maxTokens = 220, t
       headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
       body: JSON.stringify(body),
     },
-    300000
+    Number(process.env.LLM_TIMEOUT_MS) || 180000
   );
 
   if (!res.ok) {

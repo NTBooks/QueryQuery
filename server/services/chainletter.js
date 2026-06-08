@@ -11,8 +11,18 @@
 //   PATCH {webhookurl}  headers: group-id, auth                                 -> stamp -> {success,message,files_stamped}
 //   GET   {webhookurl}  headers: hash, auth   (NOT group-id — sending both 400s) -> verify
 import Hash from 'ipfs-only-hash';
+import { safeFetch } from './safeFetch.js';
 
 const EMPTY_FILE_CID = 'QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH';
+
+/** Hide the secret path of a webhook/token URL in logs (the path IS the API key). */
+export function redactUrl(u) {
+  try {
+    return `${new URL(String(u)).origin}/…`;
+  } catch {
+    return '«url»';
+  }
+}
 
 /** Compute the CIDv0 (Qm...) IPFS/Pinata would produce for these bytes — no upload. */
 export async function computeCid(buffer) {
@@ -44,7 +54,7 @@ async function clFetch(cl, method, { headers = {}, body, label, omitGroup = fals
   const h = { ...(omitGroup ? {} : { 'group-id': cl.groupId || '' }), ...authHeaders(cl), ...headers };
   if (body) h['Content-Type'] = 'application/json';
   // eslint-disable-next-line no-console
-  console.log(`[chainletter] ${label} ${method} ${url} (group-id=${cl.groupId || '∅'}, auth=${authMode(cl)})`);
+  console.log(`[chainletter] ${label} ${method} ${redactUrl(url)} (group-id=${cl.groupId || '∅'}, auth=${authMode(cl)})`);
   const res = await fetchWithTimeout(url, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   const benign = res.ok || res.status === 404 || res.status === 409;
@@ -53,14 +63,11 @@ async function clFetch(cl, method, { headers = {}, body, label, omitGroup = fals
   return { res, status: res.status, text };
 }
 
+// All Chainletter endpoints (the user's token URL and the claim-returned webhook
+// URL) must be public https hosts — route every outbound call through the SSRF
+// guard so a crafted token/webhook can't reach internal or metadata addresses.
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  return safeFetch(url, options, { timeoutMs });
 }
 
 function friendly(status, detail) {
@@ -175,7 +182,7 @@ export async function uploadAndStamp(cl, { buffer, name, mimetype, network = 'pr
   const form = new FormData();
   form.append('file', new Blob([buffer], { type: mimetype || guessMime(name) }), name);
   // eslint-disable-next-line no-console
-  console.log(`[chainletter] upload POST ${cl.webhookUrl} (group-id=${cl.groupId || '∅'}, network=${network}, stamp=immediate, auth=${authMode(cl)})`);
+  console.log(`[chainletter] upload POST ${redactUrl(cl.webhookUrl)} (group-id=${cl.groupId || '∅'}, network=${network}, stamp=immediate, auth=${authMode(cl)})`);
   // NOTE: do NOT set Content-Type — fetch sets the multipart boundary for FormData.
   const res = await fetchWithTimeout(cl.webhookUrl, {
     method: 'POST',

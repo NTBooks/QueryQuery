@@ -105,14 +105,14 @@ export const repo = {
   listUsers: () => stmts.usersAll.all(),
   getAdminId: () => stmts.adminId.get()?.id || null,
   publicUser,
-  createUser: ({ username, password, role = 'user' }) => {
-    const { salt, hash } = hashPassword(password);
+  createUser: async ({ username, password, role = 'user' }) => {
+    const { salt, hash } = await hashPassword(password);
     const row = { id: genId(), username, pw_hash: hash, pw_salt: salt, role, created_at: new Date().toISOString() };
     stmts.insertUser.run(row);
     return publicUser(row);
   },
-  setPassword: (id, password) => {
-    const { salt, hash } = hashPassword(password);
+  setPassword: async (id, password) => {
+    const { salt, hash } = await hashPassword(password);
     stmts.setPw.run(hash, salt, id);
   },
   setUserChainletter: (id, { tokenUrl, enabled, claim }) =>

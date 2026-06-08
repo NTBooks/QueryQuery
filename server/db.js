@@ -1,7 +1,7 @@
 // SQLite connection + schema migration (better-sqlite3, synchronous).
 import Database from 'better-sqlite3';
 import { DB_PATH, migrateLegacy } from '../paths.js';
-import { genId, hashPassword } from './password.js';
+import { genId, hashPasswordSync, genPassword } from './password.js';
 
 migrateLegacy(); // ensure PERSIST_DIR exists + bring forward any legacy db
 
@@ -79,14 +79,44 @@ db.exec(`
 const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (!ucols.includes('config')) db.exec('ALTER TABLE users ADD COLUMN config TEXT');
 
-// Seed a default admin (admin / admin) on first run.
+// Seed the first admin on a fresh install. The password is taken from
+// ADMIN_PASSWORD if set, otherwise generated randomly and printed ONCE to the
+// logs below — there is no hard-coded default credential.
+export let seededAdmin = null; // { username, password, fromEnv } only on the run that creates it
+
+function printAdminBanner({ username, password, fromEnv }) {
+  const bar = '='.repeat(60);
+  const lines = [`\n${bar}`, '  QueryQuery - first-run admin account created'];
+  if (fromEnv) {
+    lines.push(`  Username: ${username}  (password taken from ADMIN_PASSWORD)`);
+  } else {
+    lines.push(
+      '  Save these credentials now - they are shown only once:',
+      '',
+      `      username:  ${username}`,
+      `      password:  ${password}`,
+      '',
+      '  Sign in, then change it under Account > Change password.',
+      '  (Set ADMIN_PASSWORD before first run to choose your own.)'
+    );
+  }
+  lines.push(bar, '');
+  console.log(lines.join('\n'));
+}
+
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 let adminId;
 if (userCount === 0) {
   adminId = genId();
-  const { salt, hash } = hashPassword('admin');
+  const username = (process.env.ADMIN_USERNAME || 'admin').trim() || 'admin';
+  const envPw = process.env.ADMIN_PASSWORD;
+  const fromEnv = !!(envPw && envPw.length);
+  const password = fromEnv ? envPw : genPassword();
+  const { salt, hash } = hashPasswordSync(password);
   db.prepare('INSERT INTO users (id, username, pw_hash, pw_salt, role, created_at) VALUES (?,?,?,?,?,?)')
-    .run(adminId, 'admin', hash, salt, 'admin', new Date().toISOString());
+    .run(adminId, username, hash, salt, 'admin', new Date().toISOString());
+  seededAdmin = { username, password, fromEnv };
+  printAdminBanner(seededAdmin);
 } else {
   adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY created_at ASC LIMIT 1").get()?.id;
 }

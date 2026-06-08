@@ -24,9 +24,15 @@ ENV NODE_ENV=production \
     QQ_NO_OPEN=1
 
 # All persistent state (db, config, input/) lives here — mount a volume in Coolify.
-RUN mkdir -p /data
+# Owned by the unprivileged `node` user (uid 1000, built into the base image) so a
+# fresh named volume inherits writable perms. NOTE: with a bind mount, ensure the
+# host directory is writable by uid 1000.
+RUN mkdir -p /data && chown -R node:node /app /data
 VOLUME ["/data"]
 EXPOSE 3000
+
+# Drop root: the app parses untrusted .eml and unzips archives, so don't run as root.
+USER node
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

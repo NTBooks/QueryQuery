@@ -79,6 +79,7 @@ export const api = {
     setAuth(basic(username, password));
     return user;
   },
+  registrationOpen: () => j('/api/auth/registration', { timeoutMs: 8000 }),
   me: () => j('/api/auth/me', { timeoutMs: 8000 }),
   logout: () => setAuth(null),
   changePassword: (currentPassword, newPassword) =>
