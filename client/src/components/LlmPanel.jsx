@@ -13,16 +13,21 @@ function LlmError({ status }) {
   return (
     <Alert status="error" borderRadius="md" flexDirection="column" alignItems="stretch" gap={2} fontSize="sm">
       <HStack><AlertIcon /><Text fontWeight="600">{status.reachable ? `Request failed: ${status.error}` : `Not reachable — ${status.error || 'is the server running?'}`}</Text></HStack>
-      {d.egressIp && (
+      {d.egress?.host && (
         <Text pl={6}>
-          Your server’s outbound IP (what the remote host sees): <Code colorScheme="red" fontWeight="700">{d.egressIp}</Code>
-          {d.isCloudflareAccess ? ' — add it to a Cloudflare Access bypass policy (or use a service token; a plain IP allow-list won’t cover Access).' : ' — add it to the allow-list.'}
+          Cloudflare saw your server as <Code colorScheme="red" fontWeight="700">{d.egress.host}</Code> for this host — add <b>exactly this</b> to the {d.isCloudflareAccess ? 'Access bypass policy' : 'allow-list'}.
         </Text>
       )}
-      {d.isCloudflareAccess && !d.egressIp && (
+      {d.egress && (d.egress.v4 || d.egress.v6) && (
+        <Text pl={6} fontSize="sm" color="gray.700">
+          Your server’s egress — IPv4: <Code>{d.egress.v4 || '—'}</Code> · IPv6: <Code>{d.egress.v6 || '—'}</Code>.
+          {d.egress.v4 && d.egress.v6 ? ' Dual-stack: the connection may use either, so add BOTH (an IPv4-only rule won’t cover an IPv6 connection — likely your issue).' : ''}
+        </Text>
+      )}
+      {d.isCloudflareAccess && !d.egress?.host && !d.egress?.v4 && !d.egress?.v6 && (
         <Text pl={6}>Behind <b>Cloudflare Access</b> (Zero Trust) — add your server’s egress IP to an Access <b>bypass</b> policy, or use a service token.</Text>
       )}
-      {d.labeledIp && d.labeledIp !== d.egressIp && (
+      {d.labeledIp && (
         <Text pl={6} fontSize="xs" color="gray.600">Page also reports a client IP: <Code fontSize="xs">{d.labeledIp}</Code></Text>
       )}
       {(d.url || d.status || d.contentType || d.server || d.cfRay) && (

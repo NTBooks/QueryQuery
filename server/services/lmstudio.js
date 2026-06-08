@@ -61,8 +61,14 @@ async function readText(u, timeoutMs = 5000) {
   }
 }
 
-/** Detect this server's real outbound IP — the address the remote host/Cloudflare sees. */
-async function detectEgressIp(url) {
+/**
+ * Detect this server's outbound IPs. Returns:
+ *  - host: the exact IP Cloudflare sees when WE connect to this host (definitive,
+ *    same connection so same v4/v6 choice as the failing request);
+ *  - v4 / v6: our IPv4 and IPv6 egress (a dual-stack box has both — and the
+ *    connection may use either, so the user may need to allow-list both).
+ */
+async function detectEgress(url) {
   let origin = null;
   try {
     origin = new URL(url).origin;
@@ -73,19 +79,17 @@ async function detectEgressIp(url) {
     const m = t && t.match(/(?:^|\n)\s*ip=([^\s\n]+)/i);
     return m ? m[1].trim() : null;
   };
-  const sources = [
-    origin ? async () => traceIp(await readText(`${origin}/cdn-cgi/trace`)) : null, // the LLM host's own edge
-    async () => traceIp(await readText('https://www.cloudflare.com/cdn-cgi/trace')),
-    async () => {
-      const t = await readText('https://api64.ipify.org');
-      return t ? t.trim().split(/\s/)[0] : null;
-    },
-  ].filter(Boolean);
-  for (const get of sources) {
-    const ip = await get();
-    if (ip && (V4_RE.test(ip) || V6_RE.test(ip))) return ip;
-  }
-  return null;
+  const ok = (ip, re) => (ip && re.test(ip) ? ip : null);
+  const [hostTrace, v4, v6] = await Promise.all([
+    origin ? readText(`${origin}/cdn-cgi/trace`).then(traceIp).catch(() => null) : Promise.resolve(null),
+    readText('https://api.ipify.org').then((t) => (t ? t.trim() : null)).catch(() => null), // IPv4-only endpoint
+    readText('https://api6.ipify.org').then((t) => (t ? t.trim() : null)).catch(() => null), // IPv6-only endpoint
+  ]);
+  return {
+    host: ok(hostTrace, V4_RE) || ok(hostTrace, V6_RE) || null,
+    v4: ok(v4, V4_RE),
+    v6: ok(v6, V6_RE),
+  };
 }
 
 /** Probe LM Studio + enumerate models. Never throws. On failure, returns full detail. */
@@ -114,7 +118,7 @@ export async function llmStatus(config) {
           server: res.headers.get('server') || '',
           cfRay: res.headers.get('cf-ray') || '',
           isCloudflareAccess,
-          egressIp: await detectEgressIp(url), // your server's real outbound IP — the one to allow-list
+          egress: await detectEgress(url), // {host, v4, v6} — the IP(s) to allow-list
           labeledIp: findLabeledIp(body), // only if the page explicitly states it
           body: body.slice(0, 16000),
         },
@@ -133,7 +137,7 @@ export async function llmStatus(config) {
       models: [],
       loadedModel: null,
       error: err.name === 'AbortError' ? 'LM Studio not reachable (timeout)' : err.message,
-      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '', egressIp: await detectEgressIp(url) },
+      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '', egress: await detectEgress(url) },
     };
   }
 }
