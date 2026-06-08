@@ -92,6 +92,10 @@ export const api = {
   meta: () => j('/api/meta'),
   getConfig: () => j('/api/config'),
   saveConfig: (config) => j('/api/config', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ config }) }),
+  // Named scoring profiles (select/save/delete each re-score the board server-side).
+  selectProfile: (name) => j('/api/config/profiles/select', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name }), timeoutMs: 120000 }),
+  saveProfile: (name, config) => j('/api/config/profiles/save', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name, config }), timeoutMs: 120000 }),
+  deleteProfile: (name) => j(`/api/config/profiles/${encodeURIComponent(name)}`, { method: 'DELETE', timeoutMs: 120000 }),
   tickets: () => j('/api/tickets', { timeoutMs: 30000 }),
   revision: () => j('/api/revision', { timeoutMs: 8000 }),
   inbox: () => j('/api/inbox'),

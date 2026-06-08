@@ -21,7 +21,7 @@ export const DEFAULT_SCORE_BANDS = [
   { key: 'strong', label: 'Strong', min: 70, max: 84 },
   { key: 'mixed', label: 'Mixed', min: 55, max: 69 },
   { key: 'weak', label: 'Weak', min: 40, max: 54 },
-  { key: 'likely_reject', label: 'Likely Reject', min: 0, max: 39 },
+  { key: 'likely_reject', label: 'Lowest Match', min: 0, max: 39 },
 ];
 
 /**

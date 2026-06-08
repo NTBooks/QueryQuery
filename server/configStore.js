@@ -16,7 +16,7 @@ function clone(o) {
 /** Deep-merge persisted config over defaults so new keys always exist. */
 function mergeDefaults(cfg = {}) {
   const d = clone(DEFAULT_CONFIG);
-  return {
+  const merged = {
     ...d,
     ...cfg,
     weights: { ...d.weights, ...(cfg.weights || {}) },
@@ -32,6 +32,13 @@ function mergeDefaults(cfg = {}) {
     llm: { ...d.llm, ...(cfg.llm || {}) },
     chainletter: { ...d.chainletter, ...(cfg.chainletter || {}) },
   };
+  // One-time label rename: the lowest band used to be "Likely Reject".
+  if (Array.isArray(merged.scoreBands)) {
+    merged.scoreBands = merged.scoreBands.map((b) =>
+      b && b.key === 'likely_reject' && b.label === 'Likely Reject' ? { ...b, label: 'Lowest Match' } : b
+    );
+  }
+  return merged;
 }
 
 export function saveConfig(cfg) {
@@ -62,35 +69,106 @@ export function setConfig(cfg) {
   return current;
 }
 
-/**
- * Per-user scoring config ("what this person is looking for"). Falls back to the
- * shared/global config until the user customizes it. The LLM block is always the
- * global (admin) one, spliced in.
- */
-export function getUserConfig(userId) {
-  const u = repo.getUserById(userId);
-  if (u && u.config) {
-    try {
-      const merged = mergeDefaults(JSON.parse(u.config));
-      merged.llm = getConfig().llm; // LLM is global/admin-managed
-      return merged;
-    } catch {
-      /* fall through to global */
-    }
-  }
-  return getConfig();
+// --- Named scoring profiles -------------------------------------------------
+// Each user has a set of named profiles and one active profile. The active
+// profile IS "this user's scoring config" (what getUserConfig returns). Stored as
+// JSON in users.profiles: { active, profiles: { name -> config } }.
+
+const MAX_PROFILES = 50;
+const DEFAULT_PROFILE = 'Default';
+
+/** A scoring config with the global-only llm block stripped (profiles never carry it). */
+function scoringOnly(cfg) {
+  const c = clone(cfg || {});
+  delete c.llm;
+  delete c.inputFolder; // filesystem path, not a scoring knob (path-traversal guard)
+  return c;
 }
 
-/** Save a user's scoring config. The LLM block is global, so it's stripped here.
- *  inputFolder is also stripped: it's a filesystem path, not a per-user scoring
- *  knob, and letting users set it is a path-traversal vector (see paths.inputDir). */
-export function setUserConfig(userId, cfg) {
-  const merged = mergeDefaults(cfg || {});
-  delete merged.llm;
-  delete merged.inputFolder;
-  repo.setUserConfig(userId, JSON.stringify(merged));
-  merged.llm = getConfig().llm;
+/**
+ * Read (and lazily create) a user's profiles bundle. On first access it seeds a
+ * single "Default" profile from the legacy users.config column, or the global
+ * config, preserving today's behavior — then persists it once.
+ */
+function readProfiles(userId) {
+  const u = repo.getUserById(userId);
+  if (!u) return { active: DEFAULT_PROFILE, profiles: { [DEFAULT_PROFILE]: scoringOnly(getConfig()) } };
+  if (u.profiles) {
+    try {
+      const d = JSON.parse(u.profiles);
+      if (d && d.profiles && typeof d.profiles === 'object' && Object.keys(d.profiles).length) {
+        if (!d.profiles[d.active]) d.active = Object.keys(d.profiles)[0];
+        return d;
+      }
+    } catch {
+      /* fall through to (re)seed */
+    }
+  }
+  let legacy = null;
+  if (u.config) {
+    try { legacy = JSON.parse(u.config); } catch { /* ignore */ }
+  }
+  const data = { active: DEFAULT_PROFILE, profiles: { [DEFAULT_PROFILE]: scoringOnly(legacy || getConfig()) } };
+  repo.setUserProfiles(userId, JSON.stringify(data));
+  return data;
+}
+
+function activeConfig(data) {
+  const merged = mergeDefaults(data.profiles[data.active] || {});
+  merged.llm = getConfig().llm; // LLM is global/admin-managed
   return merged;
+}
+
+/** This user's scoring config = their active profile (with the global LLM spliced in). */
+export function getUserConfig(userId) {
+  return activeConfig(readProfiles(userId));
+}
+
+/** Save the user's draft into the ACTIVE profile (used by the plain config save). */
+export function setUserConfig(userId, cfg) {
+  const data = readProfiles(userId);
+  data.profiles[data.active] = scoringOnly(mergeDefaults(cfg || {}));
+  repo.setUserProfiles(userId, JSON.stringify(data));
+  return activeConfig(data);
+}
+
+/** { profiles: [names], active } */
+export function listProfiles(userId) {
+  const data = readProfiles(userId);
+  return { profiles: Object.keys(data.profiles), active: data.active };
+}
+
+/** Make an existing profile active; returns its config. */
+export function selectProfile(userId, name) {
+  const data = readProfiles(userId);
+  if (!Object.prototype.hasOwnProperty.call(data.profiles, name)) throw new Error('Profile not found.');
+  data.active = name;
+  repo.setUserProfiles(userId, JSON.stringify(data));
+  return activeConfig(data);
+}
+
+/** Create or overwrite a named profile from a draft config, and make it active. */
+export function saveProfile(userId, name, cfg) {
+  const data = readProfiles(userId);
+  const isNew = !Object.prototype.hasOwnProperty.call(data.profiles, name);
+  if (isNew && Object.keys(data.profiles).length >= MAX_PROFILES) {
+    throw new Error(`Profile limit reached (${MAX_PROFILES}). Delete one first.`);
+  }
+  data.profiles[name] = scoringOnly(mergeDefaults(cfg || {}));
+  data.active = name;
+  repo.setUserProfiles(userId, JSON.stringify(data));
+  return activeConfig(data);
+}
+
+/** Delete a named profile (never the last one); returns the new active config. */
+export function deleteProfile(userId, name) {
+  const data = readProfiles(userId);
+  if (!Object.prototype.hasOwnProperty.call(data.profiles, name)) throw new Error('Profile not found.');
+  if (Object.keys(data.profiles).length <= 1) throw new Error('Cannot delete the only profile.');
+  delete data.profiles[name];
+  if (data.active === name) data.active = Object.keys(data.profiles)[0];
+  repo.setUserProfiles(userId, JSON.stringify(data));
+  return activeConfig(data);
 }
 
 // --- Stable hash of the scoring-relevant config (drives "stale score" UI) ---

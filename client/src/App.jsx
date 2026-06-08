@@ -38,6 +38,8 @@ export default function App() {
   const [view, setView] = useState('board');
   const [meta, setMeta] = useState(null);
   const [config, setConfig] = useState(null);
+  const [profiles, setProfiles] = useState([]);
+  const [activeProfile, setActiveProfile] = useState('');
   const [serverHash, setServerHash] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [user, setUser] = useState(null);
@@ -77,6 +79,8 @@ export default function App() {
         const [m, c] = await Promise.all([api.meta(), api.getConfig()]);
         setMeta(m);
         setConfig(c.config);
+        setProfiles(c.profiles || []);
+        setActiveProfile(c.activeProfile || '');
         await loadTickets();
       } catch (err) {
         toast({ title: 'Failed to load', description: err.message, status: 'error' });
@@ -186,6 +190,9 @@ export default function App() {
     try {
       const out = await api.saveConfig(next);
       setConfig(out.config);
+      if (out.profiles) setProfiles(out.profiles);
+      if (out.activeProfile) setActiveProfile(out.activeProfile);
+      if (out.configHash) setServerHash(out.configHash);
       if (!opts.silent) toast({ title: 'Configuration saved', status: 'success' });
       return out;
     } catch (err) {
@@ -195,6 +202,54 @@ export default function App() {
       if (!opts.silent) setBusy(false);
     }
   };
+
+  // Profile ops return the new active config + rescore the board server-side; we
+  // adopt the returned config/list and reload the (re-scored) tickets.
+  const applyProfileResult = useCallback((out) => {
+    setConfig(out.config);
+    setProfiles(out.profiles || []);
+    setActiveProfile(out.activeProfile || '');
+    if (out.configHash) setServerHash(out.configHash);
+    return loadTickets();
+  }, [loadTickets]);
+
+  const onSelectProfile = useCallback(async (name) => {
+    if (name === activeProfile) return;
+    setBusy(true);
+    try {
+      await applyProfileResult(await api.selectProfile(name));
+      toast({ title: `Switched to "${name}"`, status: 'success' });
+    } catch (err) {
+      toast({ title: 'Could not switch profile', description: err.message, status: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }, [activeProfile, applyProfileResult, toast]);
+
+  const onSaveProfile = useCallback(async (name, cfg) => {
+    setBusy(true);
+    try {
+      await applyProfileResult(await api.saveProfile(name, cfg));
+      toast({ title: `Saved profile "${name}"`, status: 'success' });
+    } catch (err) {
+      toast({ title: 'Save failed', description: err.message, status: 'error' });
+      throw err;
+    } finally {
+      setBusy(false);
+    }
+  }, [applyProfileResult, toast]);
+
+  const onDeleteProfile = useCallback(async (name) => {
+    setBusy(true);
+    try {
+      await applyProfileResult(await api.deleteProfile(name));
+      toast({ title: `Deleted profile "${name}"`, status: 'info' });
+    } catch (err) {
+      toast({ title: 'Delete failed', description: err.message, status: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  }, [applyProfileResult, toast]);
 
   const openTicket = useCallback((t) => {
     setSelected(t);
@@ -295,6 +350,9 @@ export default function App() {
             tickets={tickets}
             staleCount={staleCount}
             busy={busy}
+            profiles={profiles}
+            activeProfile={activeProfile}
+            onSelectProfile={onSelectProfile}
             onStatus={updateStatus}
             onOpen={openTicket}
             onScan={scanInbox}
@@ -311,7 +369,19 @@ export default function App() {
         )}
         {view === 'config' && (
           <Box h="100%" overflowY="auto" p={6}>
-            <ConfigForm meta={meta} config={config} onSave={saveConfig} onRescore={rescoreAll} busy={busy} />
+            <ConfigForm
+              key={activeProfile}
+              meta={meta}
+              config={config}
+              busy={busy}
+              profiles={profiles}
+              activeProfile={activeProfile}
+              onSave={saveConfig}
+              onRescore={rescoreAll}
+              onSelectProfile={onSelectProfile}
+              onSaveProfile={onSaveProfile}
+              onDeleteProfile={onDeleteProfile}
+            />
           </Box>
         )}
         {view === 'settings' && (

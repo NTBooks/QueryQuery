@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import {
   Box, Heading, Text, VStack, HStack, SimpleGrid, FormControl, FormLabel, FormHelperText,
   Slider, SliderTrack, SliderFilledTrack, SliderThumb, Switch, NumberInput, NumberInputField,
-  Button, Divider, Badge, Flex, Input, Spacer, useToast, Wrap, WrapItem, Tag, TagLabel, TagCloseButton,
+  Button, Divider, Badge, Flex, Input, Spacer, Select, useToast, useDisclosure,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter, Alert, AlertIcon,
 } from '@chakra-ui/react';
+import { FiCopy, FiTrash2, FiSave } from 'react-icons/fi';
 import { Select as RSelect } from 'chakra-react-select';
 import { genreLabel, metricLabel } from '../lib/format.js';
 
@@ -20,12 +22,36 @@ function Section({ title, subtitle, children }) {
 const fromOpts = (opts) => (opts || []).map((o) => o.value);
 const parseCsv = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
-export default function ConfigForm({ meta, config, onSave, onRescore, busy }) {
+export default function ConfigForm({
+  meta, config, busy,
+  profiles = [], activeProfile = '',
+  onSelectProfile, onSaveProfile, onDeleteProfile,
+}) {
   const toast = useToast();
   const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(config)));
-  const [savedHint, setSavedHint] = useState(false);
+  const copyModal = useDisclosure();
+  const deleteModal = useDisclosure();
+  const [copyName, setCopyName] = useState('');
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+
+  // Save the current draft into the active profile (re-scores the board upstream).
+  const saveActive = async () => {
+    try { await onSaveProfile?.(activeProfile, draft); } catch { /* toast upstream */ }
+  };
+  // Save a copy under a new name (becomes the active profile).
+  const saveCopy = async () => {
+    const name = copyName.trim();
+    if (!name) return;
+    try {
+      await onSaveProfile?.(name, draft);
+      copyModal.onClose();
+      setCopyName('');
+    } catch { /* toast upstream */ }
+  };
+  const confirmDelete = async () => {
+    try { await onDeleteProfile?.(activeProfile); deleteModal.onClose(); } catch { /* toast upstream */ }
+  };
 
   // Comma-separated text fields (kept as raw strings while typing, parsed to arrays).
   const [csv, setCsv] = useState(() => ({
@@ -49,28 +75,36 @@ export default function ConfigForm({ meta, config, onSave, onRescore, busy }) {
     [draft.weights]
   );
 
-  const save = async () => {
-    try {
-      await onSave(draft);
-      setSavedHint(true);
-    } catch {
-      /* toast handled upstream */
-    }
-  };
+  const onlyProfile = profiles.length <= 1;
 
   return (
     <VStack align="stretch" spacing={5} maxW="900px" mx="auto">
-      <Flex align="center">
-        <Box>
-          <Heading size="lg">Configuration</Heading>
-          <Text color="gray.500">Shape what you're looking for into a score. All scoring is heuristic — no AI.</Text>
-        </Box>
-        <Spacer />
-        <HStack>
-          <Button onClick={save} isLoading={busy}>Save</Button>
-          {savedHint && <Button variant="outline" colorScheme="gray" onClick={onRescore} isLoading={busy}>Re-score all</Button>}
-        </HStack>
-      </Flex>
+      <Box>
+        <Heading size="lg">Configuration</Heading>
+        <Text color="gray.500">Shape what you're looking for into a score. All scoring is heuristic — no AI.</Text>
+      </Box>
+
+      {/* Profile bar: pick what you're scoring against; save/copy/delete. */}
+      <Box bg="white" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p={4}>
+        <Flex align="center" gap={3} wrap="wrap">
+          <Box>
+            <Text fontSize="xs" color="gray.500" mb={1}>Profile</Text>
+            <Select
+              size="sm" minW="200px" maxW="260px" value={activeProfile}
+              onChange={(e) => onSelectProfile?.(e.target.value)} isDisabled={busy}
+            >
+              {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
+            </Select>
+          </Box>
+          <Spacer />
+          <HStack spacing={2} pt={5}>
+            <Button size="sm" colorScheme="brand" leftIcon={<FiSave />} onClick={saveActive} isLoading={busy}>Save</Button>
+            <Button size="sm" variant="outline" leftIcon={<FiCopy />} onClick={() => { setCopyName(`${activeProfile} copy`); copyModal.onOpen(); }} isDisabled={busy}>Save a copy</Button>
+            <Button size="sm" variant="outline" colorScheme="red" leftIcon={<FiTrash2 />} onClick={deleteModal.onOpen} isDisabled={busy || onlyProfile} title={onlyProfile ? 'Keep at least one profile' : undefined}>Delete</Button>
+          </HStack>
+        </Flex>
+        <Text fontSize="xs" color="gray.500" mt={2}>Selecting or saving a profile re-scores the whole board.</Text>
+      </Box>
 
       <Section title="What you represent" subtitle="Genres you want boost a query's score; everything else is scored lower (but still shown).">
         <FormControl>
@@ -200,11 +234,54 @@ export default function ConfigForm({ meta, config, onSave, onRescore, busy }) {
 
       <Flex>
         <Spacer />
-        <HStack>
-          <Button onClick={save} isLoading={busy} size="lg">Save configuration</Button>
-          {savedHint && <Button variant="outline" colorScheme="gray" onClick={onRescore} isLoading={busy} size="lg">Re-score all</Button>}
-        </HStack>
+        <Button onClick={saveActive} isLoading={busy} size="lg" leftIcon={<FiSave />}>
+          Save &amp; re-score "{activeProfile}"
+        </Button>
       </Flex>
+
+      {/* Save a copy */}
+      <Modal isOpen={copyModal.isOpen} onClose={copyModal.onClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Save a copy</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <FormControl>
+              <FormLabel>New profile name</FormLabel>
+              <Input
+                value={copyName} autoFocus maxLength={40}
+                onChange={(e) => setCopyName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveCopy(); }}
+                placeholder="e.g. Cozy mysteries"
+              />
+              <FormHelperText>Saves the current settings as a new profile and switches to it.</FormHelperText>
+            </FormControl>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={copyModal.onClose}>Cancel</Button>
+            <Button colorScheme="brand" onClick={saveCopy} isLoading={busy} isDisabled={!copyName.trim()}>Save copy</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal isOpen={deleteModal.isOpen} onClose={deleteModal.onClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Delete profile</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Alert status="warning" borderRadius="md" fontSize="sm">
+              <AlertIcon />
+              Delete profile <b>&nbsp;"{activeProfile}"</b>? This can't be undone. The board will re-score against the next profile.
+            </Alert>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={deleteModal.onClose}>Cancel</Button>
+            <Button colorScheme="red" onClick={confirmDelete} isLoading={busy}>Delete</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </VStack>
   );
 }

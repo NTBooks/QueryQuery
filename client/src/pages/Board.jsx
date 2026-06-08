@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Box, Flex, Grid, GridItem, HStack, Heading, Text, Badge, Input, InputGroup, InputLeftElement,
-  IconButton, Button, Stack, Spacer,
+  IconButton, Button, Stack, Spacer, Select,
 } from '@chakra-ui/react';
 import { FiSearch, FiChevronDown, FiChevronRight, FiInbox, FiFolder, FiFilePlus, FiRefreshCw, FiArchive } from 'react-icons/fi';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -10,7 +10,7 @@ import { bandColor } from '../lib/format.js';
 
 const CELL_CAP = 80;
 
-export default function Board({ meta, config, tickets, staleCount = 0, busy, onStatus, onOpen, onScan, onShowFolder, onPaste, onRescore, onArchive }) {
+export default function Board({ meta, config, tickets, staleCount = 0, busy, profiles = [], activeProfile = '', onSelectProfile, onStatus, onOpen, onScan, onShowFolder, onPaste, onRescore, onArchive }) {
   const states = meta?.states || [];
   const bands = config?.scoreBands || [];
   const [query, setQuery] = useState('');
@@ -92,6 +92,20 @@ export default function Board({ meta, config, tickets, staleCount = 0, busy, onS
     <Flex direction="column" h="100%">
       {/* Toolbar */}
       <Flex px={5} py={3} align="center" gap={2} bg="gray.50">
+        {profiles.length > 0 && (
+          <HStack spacing={1} flexShrink={0} mr={1}>
+            <Text fontSize="sm" color="gray.600">Profile</Text>
+            <Select
+              size="sm" bg="white" borderRadius="md" maxW="200px"
+              value={activeProfile}
+              onChange={(e) => onSelectProfile?.(e.target.value)}
+              isDisabled={busy}
+              title="Switch scoring profile (re-scores the board)"
+            >
+              {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
+            </Select>
+          </HStack>
+        )}
         <InputGroup maxW="300px" bg="white" borderRadius="md">
           <InputLeftElement pointerEvents="none"><FiSearch color="gray" /></InputLeftElement>
           <Input placeholder="Search title, author, subject…" value={query} onChange={(e) => setQuery(e.target.value)} />

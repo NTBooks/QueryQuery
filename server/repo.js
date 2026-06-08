@@ -52,6 +52,7 @@ const stmts = {
   setUserCl: db.prepare('UPDATE users SET cl_token_url=?, cl_enabled=?, cl_claim=? WHERE id=?'),
   setUserClaimStmt: db.prepare('UPDATE users SET cl_claim=? WHERE id=?'),
   setUserConfigStmt: db.prepare('UPDATE users SET config=? WHERE id=?'),
+  setUserProfilesStmt: db.prepare('UPDATE users SET profiles=? WHERE id=?'),
   insert: db.prepare(`
     INSERT INTO tickets
       (source_file, from_addr, from_name, subject, received_at, body, components,
@@ -119,6 +120,7 @@ export const repo = {
     stmts.setUserCl.run(tokenUrl || '', enabled ? 1 : 0, claim ? JSON.stringify(claim) : null, id),
   setUserClaim: (id, claim) => stmts.setUserClaimStmt.run(claim ? JSON.stringify(claim) : null, id),
   setUserConfig: (id, json) => stmts.setUserConfigStmt.run(json, id),
+  setUserProfiles: (id, json) => stmts.setUserProfilesStmt.run(json, id),
 
   // --- board archiving ---
   archiveBoard: (ownerId, comment) => {

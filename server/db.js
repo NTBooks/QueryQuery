@@ -78,6 +78,9 @@ db.exec(`
 // Per-user scoring config ("what each person is looking for").
 const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (!ucols.includes('config')) db.exec('ALTER TABLE users ADD COLUMN config TEXT');
+// Named scoring profiles: JSON { active, profiles: { name -> config } }. Lazily
+// seeded from the legacy `config` column on first access (see configStore.js).
+if (!ucols.includes('profiles')) db.exec('ALTER TABLE users ADD COLUMN profiles TEXT');
 
 // Seed the first admin on a fresh install. The password is taken from
 // ADMIN_PASSWORD if set, otherwise generated randomly and printed ONCE to the
