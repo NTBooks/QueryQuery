@@ -1,59 +1,70 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Heading, Text, VStack, HStack, FormControl, FormLabel, FormHelperText, Input, Switch,
-  Button, Alert, AlertIcon, Flex, Spacer, useToast, Code, SimpleGrid, Badge,
+  Button, Alert, AlertIcon, Flex, Spacer, useToast, Code, SimpleGrid, Badge, Spinner,
 } from '@chakra-ui/react';
 import { FiRefreshCw } from 'react-icons/fi';
 import api from '../api.js';
 import ClGlyph from './ClGlyph.jsx';
 
-export default function ChainletterPanel({ config, onSaveConfig }) {
+export default function ChainletterPanel() {
   const toast = useToast();
-  const [cl, setCl] = useState(() => ({ ...config.chainletter }));
+  const [loaded, setLoaded] = useState(null); // saved server state {enabled, tokenUrl, claimed}
+  const [cl, setCl] = useState({ enabled: false, tokenUrl: '' });
   const [status, setStatus] = useState(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    api.getChainletter()
+      .then((s) => { setLoaded(s); setCl({ enabled: !!s.enabled, tokenUrl: s.tokenUrl || '' }); })
+      .catch((e) => toast({ title: 'Failed to load', description: e.message, status: 'error' }));
+  }, [toast]);
+
   const set = (patch) => setCl((c) => ({ ...c, ...patch }));
+  const dirty = loaded && (cl.enabled !== !!loaded.enabled || (cl.tokenUrl || '') !== (loaded.tokenUrl || ''));
 
-  const dirty = ['enabled', 'tokenUrl', 'verifyUrlTemplate'].some(
-    (k) => (cl[k] ?? '') !== (config.chainletter?.[k] ?? '')
-  );
+  const save = async () => {
+    setSaving(true);
+    try {
+      const s = await api.saveChainletter({ enabled: cl.enabled, tokenUrl: cl.tokenUrl });
+      setLoaded(s);
+      toast({ title: 'Chainletter settings saved', status: 'success' });
+    } catch (e) {
+      toast({ title: 'Save failed', description: e.message, status: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  // Claiming a token is single-use, so we save first and test against the saved
-  // config — that way the claim (and its cached jwt/webhook) belongs to this token.
+  // Claiming is single-use, so save first and test against the saved token.
   const test = async () => {
     setTesting(true);
     try {
-      if (dirty) await onSaveConfig({ ...config, chainletter: cl }, { silent: true });
+      if (dirty) {
+        const s = await api.saveChainletter({ enabled: cl.enabled, tokenUrl: cl.tokenUrl });
+        setLoaded(s);
+      }
       setStatus(await api.chainletterTest());
-    } catch (err) {
-      setStatus({ ok: false, message: err.message });
+    } catch (e) {
+      setStatus({ ok: false, message: e.message });
     } finally {
       setTesting(false);
     }
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      await onSaveConfig({ ...config, chainletter: cl });
-      toast({ title: 'Chainletter settings saved', status: 'success' });
-    } catch {
-      /* handled upstream */
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (!loaded) {
+    return <HStack color="gray.500" justify="center" py={10}><Spinner size="sm" /><Text>Loading…</Text></HStack>;
+  }
 
   return (
     <VStack align="stretch" spacing={5} maxW="760px" mx="auto">
       <Box>
         <HStack><ClGlyph h="1.2em" /><Heading size="lg">Chainletter — Certify Receipt</Heading></HStack>
         <Text color="gray.500" mt={1}>
-          Store each author’s original letter on Chainletter’s <b>private</b> network (not public, not IPFS) and
-          blockchain-stamp it, so they can later prove their idea was submitted to and read by a human.
-          A value-add for authors worried about AI idea-theft.
+          Blockchain-stamp a fingerprint (base64) of each author’s letter and hand them the proof token to keep,
+          so they can later prove their idea was submitted to and read by a human. These credentials are
+          <b> yours</b> — each user configures their own Chainletter token.
         </Text>
       </Box>
 
@@ -62,6 +73,7 @@ export default function ChainletterPanel({ config, onSaveConfig }) {
           <FormControl display="flex" alignItems="center">
             <Switch isChecked={!!cl.enabled} onChange={(e) => set({ enabled: e.target.checked })} mr={3} />
             <FormLabel mb={0}>Enable “Certify Receipt”</FormLabel>
+            {loaded.claimed && <Badge ml={3} colorScheme="green">token claimed</Badge>}
           </FormControl>
 
           <FormControl>
@@ -91,7 +103,6 @@ export default function ChainletterPanel({ config, onSaveConfig }) {
                   <Text>Tenant: <b>{status.tenant}</b></Text>
                   <Text>Folder: <b>{status.folder}</b></Text>
                   {status.expires && <Text>Expires: <b>{status.expires}</b></Text>}
-                  {status.status && <Text>Status: <Badge colorScheme={/active/i.test(status.status) ? 'green' : 'orange'}>{status.status}</Badge></Text>}
                 </SimpleGrid>
               )}
             </Alert>
@@ -112,8 +123,8 @@ export default function ChainletterPanel({ config, onSaveConfig }) {
       <Alert status="info" borderRadius="md" variant="left-accent">
         <AlertIcon />
         <Box fontSize="sm">
-          The letter is uploaded to Chainletter’s <b>private</b> network (visible only to your account — not public,
-          not on IPFS) and blockchain-stamped. The on-chain record is its IPFS hash (CIDv0).
+          Only a small base64 fingerprint of the letter text is sent (privately) to get an on-chain stamp; the
+          author keeps that token and can verify its hash (an IPFS CIDv0) on the blockchain anytime.
         </Box>
       </Alert>
     </VStack>

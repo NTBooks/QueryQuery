@@ -5,7 +5,7 @@ import {
   Box, Flex, Button, Heading, Text, VStack, HStack, Badge, Alert, AlertIcon, Code, Link,
   useClipboard, useToast,
 } from '@chakra-ui/react';
-import { FiShield, FiCopy, FiCheck, FiExternalLink } from 'react-icons/fi';
+import { FiShield, FiCopy, FiCheck, FiExternalLink, FiDownload } from 'react-icons/fi';
 import api from '../api.js';
 import ClGlyph from './ClGlyph.jsx';
 
@@ -14,6 +14,30 @@ function CopyButton({ value, label = 'Copy' }) {
   return (
     <Button size="xs" variant="outline" colorScheme="gray" leftIcon={hasCopied ? <FiCheck /> : <FiCopy />} onClick={onCopy} isDisabled={!value}>
       {hasCopied ? 'Copied' : label}
+    </Button>
+  );
+}
+
+function downloadFile(filename, content, type = 'text/plain') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function replyToEml(reply) {
+  return [`To: ${reply.to || ''}`, `Subject: ${reply.subject || ''}`, 'Content-Type: text/plain; charset=utf-8', '', reply.body || ''].join('\r\n');
+}
+
+function DownloadButton({ filename, content, type, label }) {
+  return (
+    <Button size="xs" variant="outline" colorScheme="gray" leftIcon={<FiDownload />} onClick={() => downloadFile(filename, content, type)} isDisabled={!content}>
+      {label}
     </Button>
   );
 }
@@ -84,11 +108,27 @@ export default function CertifyPanel({ ticket, config, onCertified }) {
           </Box>
         )}
 
+        {cert.stampData && (
+          <Box>
+            <Flex justify="space-between" align="center" mb={1}>
+              <Text fontSize="xs" color="gray.500">Proof token (base64 — the author keeps this to verify later)</Text>
+              <DownloadButton filename={`proof-${ticket.cl_cid}.txt`} content={cert.stampData} label="Download" />
+            </Flex>
+            <HStack align="start">
+              <Code fontSize="xs" wordBreak="break-all" whiteSpace="pre-wrap" maxH="110px" overflowY="auto" flex="1">{cert.stampData}</Code>
+              <CopyButton value={cert.stampData} />
+            </HStack>
+          </Box>
+        )}
+
         {reply && (
           <Box borderWidth="1px" borderColor="gray.200" borderRadius="md" p={3}>
             <Flex justify="space-between" align="center">
               <Heading size="xs">Reply to author</Heading>
-              <CopyButton value={`To: ${reply.to}\nSubject: ${reply.subject}\n\n${reply.body}`} label="Copy reply" />
+              <HStack>
+                <DownloadButton filename={`reply-${ticket.id}.eml`} content={replyToEml(reply)} type="message/rfc822" label="Download .eml" />
+                <CopyButton value={`To: ${reply.to}\nSubject: ${reply.subject}\n\n${reply.body}`} label="Copy reply" />
+              </HStack>
             </Flex>
             <VStack align="stretch" spacing={1} mt={2} fontSize="sm">
               <Text><b>To:</b> {reply.to || '(no address found)'}</Text>
@@ -104,8 +144,8 @@ export default function CertifyPanel({ ticket, config, onCertified }) {
   return (
     <VStack align="stretch" spacing={3}>
       <Text fontSize="sm" color="gray.600">
-        Upload this author’s <b>original letter</b> to Chainletter’s <b>private</b> network (not public, not IPFS)
-        and blockchain-stamp it. The author gets a verification link proving their idea was submitted and read by a human.
+        Blockchain-stamp a fingerprint (base64) of this author’s <b>letter text</b> and send them the
+        <b> proof token</b> to keep. They can verify it against the blockchain anytime — the letter isn’t shared publicly.
       </Text>
       {!confirming ? (
         <Button leftIcon={<ClGlyph />} colorScheme="green" onClick={() => setConfirming(true)} alignSelf="flex-start">

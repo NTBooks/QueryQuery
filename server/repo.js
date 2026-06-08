@@ -1,5 +1,6 @@
-// Thin data-access layer over the tickets table.
+// Thin data-access layer over the tickets + users tables.
 import db from './db.js';
+import { genId, hashPassword } from './password.js';
 
 function safeParse(s) {
   if (s == null) return null;
@@ -26,19 +27,39 @@ export function rowToTicket(r) {
   };
 }
 
+function publicUser(r) {
+  return r ? { id: r.id, username: r.username, role: r.role } : null;
+}
+
 const stmts = {
   all: db.prepare('SELECT * FROM tickets ORDER BY score DESC, id ASC'),
+  allByOwner: db.prepare('SELECT * FROM tickets WHERE owner_id = ? AND archived_iteration IS NULL ORDER BY score DESC, id ASC'),
   byId: db.prepare('SELECT * FROM tickets WHERE id = ?'),
+  byIdOwned: db.prepare('SELECT * FROM tickets WHERE id = ? AND owner_id = ?'),
   byFile: db.prepare('SELECT id, status FROM tickets WHERE source_file = ?'),
+  // board archiving
+  maxIter: db.prepare('SELECT MAX(archived_iteration) AS m FROM tickets WHERE owner_id = ?'),
+  archiveActive: db.prepare('UPDATE tickets SET archived_iteration=@iter, archive_comment=@comment, archived_at=@now WHERE owner_id=@owner AND archived_iteration IS NULL'),
+  listArch: db.prepare('SELECT archived_iteration AS iteration, COUNT(*) AS count, archive_comment AS comment, MAX(archived_at) AS at FROM tickets WHERE owner_id = ? AND archived_iteration IS NOT NULL GROUP BY archived_iteration ORDER BY archived_iteration DESC'),
+  restoreArch: db.prepare('UPDATE tickets SET archived_iteration=NULL, archive_comment=NULL, archived_at=NULL WHERE owner_id=? AND archived_iteration=?'),
+  // users
+  userByName: db.prepare('SELECT * FROM users WHERE username = ?'),
+  userById: db.prepare('SELECT * FROM users WHERE id = ?'),
+  usersAll: db.prepare('SELECT id, username, role, created_at FROM users ORDER BY created_at ASC'),
+  adminId: db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY created_at ASC LIMIT 1"),
+  insertUser: db.prepare('INSERT INTO users (id, username, pw_hash, pw_salt, role, created_at) VALUES (@id,@username,@pw_hash,@pw_salt,@role,@created_at)'),
+  setPw: db.prepare('UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?'),
+  setUserCl: db.prepare('UPDATE users SET cl_token_url=?, cl_enabled=?, cl_claim=? WHERE id=?'),
+  setUserClaimStmt: db.prepare('UPDATE users SET cl_claim=? WHERE id=?'),
   insert: db.prepare(`
     INSERT INTO tickets
       (source_file, from_addr, from_name, subject, received_at, body, components,
        score, score_band, breakdown, ai_suspicion, ai_disclosed, cliche_score,
-       status, config_hash, created_at, updated_at)
+       status, config_hash, owner_id, created_at, updated_at)
     VALUES
       (@source_file, @from_addr, @from_name, @subject, @received_at, @body, @components,
        @score, @score_band, @breakdown, @ai_suspicion, @ai_disclosed, @cliche_score,
-       @status, @config_hash, @now, @now)
+       @status, @config_hash, @owner_id, @now, @now)
   `),
   updateScores: db.prepare(`
     UPDATE tickets SET
@@ -67,11 +88,45 @@ const stmts = {
 
 export const repo = {
   getAll: () => stmts.all.all().map(rowToTicket),
+  getAllByOwner: (ownerId) => stmts.allByOwner.all(ownerId).map(rowToTicket),
   getRawAll: () => stmts.all.all(),
+  getRawAllByOwner: (ownerId) => stmts.allByOwner.all(ownerId),
   getById: (id) => rowToTicket(stmts.byId.get(id)),
   getRawById: (id) => stmts.byId.get(id),
+  getRawByIdOwned: (id, ownerId) => stmts.byIdOwned.get(id, ownerId),
+  getByIdOwned: (id, ownerId) => rowToTicket(stmts.byIdOwned.get(id, ownerId)),
   findByFile: (file) => stmts.byFile.get(file),
   insert: (row) => stmts.insert.run(row),
+
+  // --- users ---
+  getUserByUsername: (username) => stmts.userByName.get(username),
+  getUserById: (id) => stmts.userById.get(id),
+  listUsers: () => stmts.usersAll.all(),
+  getAdminId: () => stmts.adminId.get()?.id || null,
+  publicUser,
+  createUser: ({ username, password, role = 'user' }) => {
+    const { salt, hash } = hashPassword(password);
+    const row = { id: genId(), username, pw_hash: hash, pw_salt: salt, role, created_at: new Date().toISOString() };
+    stmts.insertUser.run(row);
+    return publicUser(row);
+  },
+  setPassword: (id, password) => {
+    const { salt, hash } = hashPassword(password);
+    stmts.setPw.run(hash, salt, id);
+  },
+  setUserChainletter: (id, { tokenUrl, enabled, claim }) =>
+    stmts.setUserCl.run(tokenUrl || '', enabled ? 1 : 0, claim ? JSON.stringify(claim) : null, id),
+  setUserClaim: (id, claim) => stmts.setUserClaimStmt.run(claim ? JSON.stringify(claim) : null, id),
+
+  // --- board archiving ---
+  archiveBoard: (ownerId, comment) => {
+    const iter = (stmts.maxIter.get(ownerId)?.m || 0) + 1;
+    const now = new Date().toISOString();
+    const info = stmts.archiveActive.run({ iter, comment: comment || '', now, owner: ownerId });
+    return { iteration: iter, count: info.changes };
+  },
+  listArchives: (ownerId) => stmts.listArch.all(ownerId),
+  restoreArchive: (ownerId, iteration) => stmts.restoreArch.run(ownerId, iteration).changes,
   updateScores: (row) => stmts.updateScores.run(row),
   rescoreRow: (row) => stmts.rescoreRow.run(row),
   setStatus: (id, status, now) => stmts.updateStatus.run(status, now, id),

@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import AdmZip from 'adm-zip';
 import repo from '../repo.js';
 import { STATUS_KEYS } from '../../shared/constants.js';
-import { getConfig, configHash, inputDir } from '../configStore.js';
+import { getConfig, configHash, userDataDir } from '../configStore.js';
 import { analyze } from '../services/ingest.js';
-import { certifyBytes, guessMime, resolveCredentials } from '../services/chainletter.js';
+import { certifyText, resolveCredentials } from '../services/chainletter.js';
+import { bumpRevision } from '../services/revision.js';
 
 const r = Router();
 
@@ -33,15 +33,18 @@ function buildReply(t, cert) {
     body:
       `${greeting}\n\n` +
       `Your query${title ? ` for "${title}"` : ''} was reviewed and ${statusPhrase}. ` +
-      'We have stored your original letter privately and stamped it to the blockchain so you can prove your idea ' +
-      'was submitted and presented to a human. Your letter was not shared publicly.\n\n' +
+      'We have stamped a fingerprint of your original letter to the blockchain so you can prove your idea ' +
+      'was submitted and presented to a human.\n\n' +
       `Verify your submission: ${cert.verifyUrl}\n\n` +
+      'PROOF TOKEN — keep this. It is the exact (base64-encoded) data we stamped. Anyone can recompute its\n' +
+      'hash and check the blockchain to confirm your letter existed when you submitted it:\n\n' +
+      `${cert.stampData}\n\n` +
       'Thank you for querying.',
   };
 }
 
 r.get('/', (req, res) => {
-  res.json({ tickets: repo.getAll(), configHash: configHash() });
+  res.json({ tickets: repo.getAllByOwner(req.user.id), configHash: configHash() });
 });
 
 // Create a ticket from pasted text (analyze + persist).
@@ -70,14 +73,32 @@ r.post('/', (req, res) => {
     ai_disclosed: a.ai.aiDisclosed ? 1 : 0,
     cliche_score: a.ai.clicheScore,
     config_hash: hash,
+    owner_id: req.user.id,
     status: 'did_not_review',
     now,
   });
   res.status(201).json(repo.getById(Number(info.lastInsertRowid)));
 });
 
+// --- board archiving (these MUST precede the /:id routes) ---
+r.post('/archive', (req, res) => {
+  const out = repo.archiveBoard(req.user.id, String(req.body?.comment || ''));
+  bumpRevision();
+  res.json(out);
+});
+
+r.get('/archives', (req, res) => {
+  res.json({ archives: repo.listArchives(req.user.id) });
+});
+
+r.post('/archives/:iter/restore', (req, res) => {
+  const restored = repo.restoreArchive(req.user.id, Number(req.params.iter));
+  bumpRevision();
+  res.json({ restored });
+});
+
 r.get('/:id', (req, res) => {
-  const t = repo.getById(Number(req.params.id));
+  const t = repo.getByIdOwned(Number(req.params.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
   res.json(t);
 });
@@ -87,82 +108,71 @@ r.patch('/:id', (req, res) => {
   if (!STATUS_KEYS.includes(status)) {
     return res.status(400).json({ error: `Invalid status. Expected one of: ${STATUS_KEYS.join(', ')}` });
   }
-  const t = repo.getRawById(Number(req.params.id));
+  const t = repo.getRawByIdOwned(Number(req.params.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
   repo.setStatus(t.id, status, new Date().toISOString());
   res.json(repo.getById(t.id));
 });
 
 r.delete('/:id', (req, res) => {
-  repo.remove(Number(req.params.id));
+  const t = repo.getRawByIdOwned(Number(req.params.id), req.user.id);
+  if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  repo.remove(t.id);
   res.json({ ok: true });
 });
 
 // Certify Receipt: stamp a hash of the original letter to the blockchain (no upload).
 r.post('/:id/certify', async (req, res) => {
-  const config = getConfig();
-  const clConfig = config.chainletter || {};
-  if (!clConfig.enabled) return res.status(400).json({ error: 'Chainletter certification is disabled. Enable it in the Chainletter tab.' });
-  if (!clConfig.tokenUrl) return res.status(400).json({ error: 'No Chainletter token URL configured.' });
+  // Chainletter is per-user (token + cached claim live on the user's row).
+  const u = repo.getUserById(req.user.id);
+  if (!u?.cl_enabled) return res.status(400).json({ error: 'Chainletter certification is disabled. Enable it in the Chainletter tab.' });
+  if (!u?.cl_token_url) return res.status(400).json({ error: 'No Chainletter token URL configured (Chainletter tab).' });
 
-  const raw = repo.getRawById(Number(req.params.id));
+  const raw = repo.getRawByIdOwned(Number(req.params.id), req.user.id);
   if (!raw) return res.status(404).json({ error: 'Ticket not found' });
 
-  // Hash the ORIGINAL email bytes (the .eml on disk); fall back to the stored body.
-  const dir = inputDir(config);
-  const file = path.join(dir, raw.source_file || '');
-  let buffer;
-  let name = raw.source_file || `ticket-${raw.id}.eml`;
-  try {
-    if (raw.source_file && fs.existsSync(file)) {
-      buffer = fs.readFileSync(file);
-    } else if (raw.source_file && raw.archive_zip) {
-      // The original was archived into a per-batch zip — read the exact bytes back.
-      const zipPath = path.join(dir, 'archive', raw.archive_zip);
-      if (fs.existsSync(zipPath)) {
-        try {
-          buffer = new AdmZip(zipPath).readFile(raw.source_file) || undefined;
-        } catch {
-          /* fall through to body */
-        }
-      }
-    }
-    if (!buffer || !buffer.length) {
-      buffer = Buffer.from(raw.body || '', 'utf8');
-      if (!/\.\w+$/.test(name)) name = `ticket-${raw.id}.txt`;
-    }
-  } catch (e) {
-    return res.status(500).json({ error: `Could not read the original letter: ${e.message}` });
-  }
-  if (!buffer || !buffer.length) return res.status(400).json({ error: 'The original letter is empty.' });
+  // Stamp the query TEXT (base64) — no original-file storage needed.
+  const text = String(raw.body || '');
+  if (!text.trim()) return res.status(400).json({ error: 'This letter has no text to certify.' });
 
   let cl;
   try {
-    cl = await resolveCredentials(config);
+    cl = await resolveCredentials({
+      tokenUrl: u.cl_token_url,
+      claim: u.cl_claim ? JSON.parse(u.cl_claim) : null,
+      verifyUrlTemplate: 'https://{server}/verify/{cid}',
+      saveClaim: (fresh) => repo.setUserClaim(req.user.id, fresh),
+    });
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[chainletter] certify ticket ${raw.id} "${name}" (${buffer.length}B) via ${cl.webhookUrl} group=${cl.groupId || '∅'}`);
+  console.log(`[chainletter] certify ticket ${raw.id} (text ${text.length} chars) via ${cl.webhookUrl} group=${cl.groupId || '∅'}`);
 
   try {
-    const cert = await certifyBytes(cl, { buffer, name, mimetype: guessMime(name) });
+    const cert = await certifyText(cl, { text, name: `query-${raw.id}` });
     const now = new Date().toISOString();
     const parsed = repo.getById(raw.id);
     const reply = buildReply(parsed, cert);
     const result = {
       stamp: cert.stamp,
       verifyUrl: cert.verifyUrl,
-      alreadyExists: cert.alreadyExists,
-      name,
-      size: buffer.length,
-      mimetype: guessMime(name),
+      stampData: cert.stampData,
+      network: cert.network,
       at: now,
       reply,
     };
     repo.setCertification(raw.id, cert.hash, JSON.stringify(result), now);
-    res.json({ id: raw.id, cid: cert.hash, stamp: cert.stamp, verifyUrl: cert.verifyUrl, alreadyExists: cert.alreadyExists, reply, ticket: repo.getById(raw.id) });
+    // Keep a copy of the proof token in the user's folder (so it survives outside the DB).
+    try {
+      const proofsDir = path.join(userDataDir(req.user.id), 'proofs');
+      fs.mkdirSync(proofsDir, { recursive: true });
+      fs.writeFileSync(path.join(proofsDir, `${cert.hash}.txt`), cert.stampData, 'utf8');
+    } catch {
+      /* best-effort */
+    }
+    res.json({ id: raw.id, cid: cert.hash, stamp: cert.stamp, verifyUrl: cert.verifyUrl, stampData: cert.stampData, reply, ticket: repo.getById(raw.id) });
   } catch (err) {
     const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
     const debug = {

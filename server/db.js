@@ -1,6 +1,7 @@
 // SQLite connection + schema migration (better-sqlite3, synchronous).
 import Database from 'better-sqlite3';
 import { DB_PATH, migrateLegacy } from '../paths.js';
+import { genId, hashPassword } from './password.js';
 
 migrateLegacy(); // ensure PERSIST_DIR exists + bring forward any legacy db
 
@@ -48,5 +49,45 @@ if (!cols.includes('cl_cid')) {
 if (!cols.includes('archive_zip')) {
   db.exec('ALTER TABLE tickets ADD COLUMN archive_zip TEXT');
 }
+// Multi-user: every ticket has an owner.
+if (!cols.includes('owner_id')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN owner_id TEXT');
+}
+// Board archiving: tickets tagged with an iteration are tucked away (restorable).
+if (!cols.includes('archived_iteration')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN archived_iteration INTEGER');
+  db.exec('ALTER TABLE tickets ADD COLUMN archive_comment TEXT');
+  db.exec('ALTER TABLE tickets ADD COLUMN archived_at TEXT');
+}
+
+// Users (multi-user accounts). Chainletter config is per-user (token + cached claim).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id           TEXT PRIMARY KEY,
+    username     TEXT UNIQUE NOT NULL,
+    pw_hash      TEXT NOT NULL,
+    pw_salt      TEXT NOT NULL,
+    role         TEXT NOT NULL DEFAULT 'user',
+    cl_token_url TEXT,
+    cl_enabled   INTEGER DEFAULT 0,
+    cl_claim     TEXT,
+    created_at   TEXT NOT NULL
+  );
+`);
+
+// Seed a default admin (admin / admin) on first run.
+const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+let adminId;
+if (userCount === 0) {
+  adminId = genId();
+  const { salt, hash } = hashPassword('admin');
+  db.prepare('INSERT INTO users (id, username, pw_hash, pw_salt, role, created_at) VALUES (?,?,?,?,?,?)')
+    .run(adminId, 'admin', hash, salt, 'admin', new Date().toISOString());
+} else {
+  adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY created_at ASC LIMIT 1").get()?.id;
+}
+
+// Backfill ownerless (pre-multi-user) tickets to the admin.
+if (adminId) db.prepare('UPDATE tickets SET owner_id=? WHERE owner_id IS NULL').run(adminId);
 
 export default db;

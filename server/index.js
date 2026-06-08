@@ -17,6 +17,9 @@ import analyzeRouter from './routes/analyze.js';
 import inboxRouter from './routes/inbox.js';
 import chainletterRouter from './routes/chainletter.js';
 import llmRouter from './routes/llm.js';
+import authRouter from './routes/auth.js';
+import usersRouter from './routes/users.js';
+import { requireAuth } from './auth.js';
 import { startWatcher } from './services/watcher.js';
 import { getRevision } from './services/revision.js';
 
@@ -25,16 +28,21 @@ const isDev = process.env.NODE_ENV === 'development';
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 
-app.use('/api/meta', metaRouter);
-app.use('/api/config', configRouter);
-app.use('/api/tickets', ticketsRouter);
-app.use('/api/ingest', ingestRouter);
-app.use('/api/analyze', analyzeRouter);
-app.use('/api/inbox', inboxRouter);
-app.use('/api/chainletter', chainletterRouter);
-app.use('/api/llm', llmRouter);
-app.get('/api/revision', (req, res) => res.json({ rev: getRevision() }));
+// Public endpoints.
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.use('/api/auth', authRouter); // login/register public; /me + /password require auth internally
+
+// Everything below requires a logged-in user.
+app.use('/api/users', requireAuth, usersRouter);
+app.use('/api/meta', requireAuth, metaRouter);
+app.use('/api/config', requireAuth, configRouter);
+app.use('/api/tickets', requireAuth, ticketsRouter);
+app.use('/api/ingest', requireAuth, ingestRouter);
+app.use('/api/analyze', requireAuth, analyzeRouter);
+app.use('/api/inbox', requireAuth, inboxRouter);
+app.use('/api/chainletter', requireAuth, chainletterRouter);
+app.use('/api/llm', requireAuth, llmRouter);
+app.get('/api/revision', requireAuth, (req, res) => res.json({ rev: getRevision() }));
 
 // Serve the built client (production). In dev, Vite serves it and proxies /api.
 if (!isDev) {

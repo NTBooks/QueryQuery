@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Flex, HStack, VStack, Button, Heading, Text, Spinner, useToast, useDisclosure, Badge, Spacer,
 } from '@chakra-ui/react';
-import { FiRefreshCw, FiInbox, FiGrid, FiSliders, FiCpu, FiFilePlus, FiFolder } from 'react-icons/fi';
+import { FiRefreshCw, FiInbox, FiGrid, FiSliders, FiCpu, FiFilePlus, FiFolder, FiArchive } from 'react-icons/fi';
 import ClGlyph from './components/ClGlyph.jsx';
-import api from './api.js';
+import api, { setOnUnauthorized, getAuth } from './api.js';
+import Login from './components/Login.jsx';
+import AccountMenu from './components/AccountMenu.jsx';
+import ArchiveModal from './components/ArchiveModal.jsx';
 import Board from './pages/Board.jsx';
 import PastePage from './pages/PastePage.jsx';
 import ConfigForm from './components/ConfigForm.jsx';
@@ -36,6 +39,8 @@ export default function App() {
   const [config, setConfig] = useState(null);
   const [serverHash, setServerHash] = useState(null);
   const [tickets, setTickets] = useState([]);
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [slow, setSlow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,6 +48,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const drawer = useDisclosure();
   const inboxModal = useDisclosure();
+  const archiveModal = useDisclosure();
 
   const loadTickets = useCallback(async () => {
     const { tickets: t, configHash } = await api.tickets();
@@ -50,7 +56,20 @@ export default function App() {
     setServerHash(configHash);
   }, []);
 
+  // On first load, restore the session from stored credentials.
   useEffect(() => {
+    setOnUnauthorized(() => setUser(null));
+    if (getAuth()) {
+      api.me().then(({ user: u }) => setUser(u)).catch(() => setUser(null)).finally(() => setAuthChecked(true));
+    } else {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  // Load app data once a user is authenticated.
+  useEffect(() => {
+    if (!user) return undefined;
+    setLoading(true);
     const slowTimer = setTimeout(() => setSlow(true), 6000);
     (async () => {
       try {
@@ -66,7 +85,7 @@ export default function App() {
       }
     })();
     return () => clearTimeout(slowTimer);
-  }, [loadTickets, toast]);
+  }, [user, loadTickets, toast]);
 
   // Live updates: the server pushes an event when the folder watcher (or an
   // upload) changes the ticket list, so the board refreshes on its own.
@@ -74,7 +93,7 @@ export default function App() {
   // connection, so multiple open tabs can never exhaust the browser's per-host
   // connection limit (which a long-lived SSE stream would).
   useEffect(() => {
-    if (loading) return undefined;
+    if (loading || !user) return undefined;
     let lastRev = null;
     const tick = async () => {
       if (document.hidden) return; // don't poll background tabs
@@ -89,7 +108,7 @@ export default function App() {
     tick();
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
-  }, [loading, loadTickets]);
+  }, [loading, user, loadTickets]);
 
   const handleFileDrop = async (e) => {
     e.preventDefault();
@@ -196,6 +215,23 @@ export default function App() {
     [tickets, serverHash]
   );
 
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    setView('board');
+  };
+
+  if (!authChecked) {
+    return (
+      <Flex h="100vh" align="center" justify="center">
+        <Spinner size="xl" color="brand.500" thickness="4px" />
+      </Flex>
+    );
+  }
+  if (!user) {
+    return <Login onAuthed={(u) => setUser(u)} />;
+  }
+
   if (loading) {
     return (
       <Flex h="100vh" align="center" justify="center" direction="column" gap={4}>
@@ -229,8 +265,12 @@ export default function App() {
         <HStack spacing={1} ml={6}>
           <NavButton icon={<FiGrid />} label="Board" active={view === 'board'} onClick={() => setView('board')} />
           <NavButton icon={<FiFilePlus />} label="Paste" active={view === 'paste'} onClick={() => setView('paste')} />
-          <NavButton icon={<FiSliders />} label="Configuration" active={view === 'config'} onClick={() => setView('config')} />
-          <NavButton icon={<FiCpu />} label="Local LLM" active={view === 'settings'} onClick={() => setView('settings')} />
+          {user.role === 'admin' && (
+            <NavButton icon={<FiSliders />} label="Configuration" active={view === 'config'} onClick={() => setView('config')} />
+          )}
+          {user.role === 'admin' && (
+            <NavButton icon={<FiCpu />} label="Local LLM" active={view === 'settings'} onClick={() => setView('settings')} />
+          )}
           <NavButton icon={<ClGlyph />} label="Chainletter" active={view === 'chainletter'} onClick={() => setView('chainletter')} />
         </HStack>
         <Spacer />
@@ -249,6 +289,10 @@ export default function App() {
           <Button leftIcon={<FiRefreshCw />} onClick={rescoreAll} isLoading={busy} variant="ghost" colorScheme="gray">
             Re-score
           </Button>
+          <Button leftIcon={<FiArchive />} onClick={archiveModal.onOpen} variant="ghost" colorScheme="gray">
+            Archive
+          </Button>
+          <AccountMenu user={user} onLogout={handleLogout} />
         </HStack>
       </Flex>
 
@@ -273,7 +317,7 @@ export default function App() {
         )}
         {view === 'chainletter' && (
           <Box h="100%" overflowY="auto" p={6}>
-            <ChainletterPanel config={config} onSaveConfig={saveConfig} />
+            <ChainletterPanel />
           </Box>
         )}
       </Box>
@@ -292,6 +336,8 @@ export default function App() {
       />
 
       <InboxModal isOpen={inboxModal.isOpen} onClose={inboxModal.onClose} onScan={scanInbox} />
+
+      <ArchiveModal isOpen={archiveModal.isOpen} onClose={archiveModal.onClose} activeCount={tickets.length} onChanged={loadTickets} />
 
       {dragging && (
         <Flex

@@ -18,10 +18,30 @@ export const DB_PATH = path.join(PERSIST_DIR, 'queryquery.db');
 export const CONFIG_PATH = path.join(PERSIST_DIR, 'queryquery.config.json');
 export const SAMPLES_DIR = path.join(ROOT, 'samples'); // dev artifacts stay in the repo
 
-/** Resolve the input folder. Relative paths are relative to PERSIST_DIR. */
+/** Resolve the base input folder. Relative paths are relative to PERSIST_DIR. */
 export function inputDir(config) {
   const f = (config && config.inputFolder) || './input';
   return path.isAbsolute(f) ? f : path.resolve(PERSIST_DIR, f);
+}
+
+function safeId(id) {
+  const s = String(id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!s) throw new Error('Invalid id');
+  return s;
+}
+
+/** Per-user input subfolder: <PERSIST_DIR>/input/<userId> (each user has their own inbox). */
+export function userInputDir(config, userId) {
+  const dir = path.join(inputDir(config), safeId(userId));
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Per-user data folder: <PERSIST_DIR>/users/<userId> (proof tokens, etc.). */
+export function userDataDir(userId) {
+  const dir = path.join(PERSIST_DIR, 'users', safeId(userId));
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 export function ensurePersist() {

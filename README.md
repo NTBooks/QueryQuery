@@ -43,6 +43,21 @@ For development with hot-reload:
 pnpm dev             # Vite dev server (5173) + Express API (4711)
 ```
 
+## Accounts
+
+QueryQuery is multi-user. On first run a default **admin / admin** account is created — sign in and
+**change the password** immediately (account menu, top-right).
+
+- **Register** your own account from the sign-in screen; each user has their own board (every ticket is
+  owned by its creator) and their own **Chainletter** token (the API key is per-user).
+- **Admins** additionally manage the shared **Configuration** + **Local LLM** settings, and can **list users /
+  reset passwords** (account menu → Manage users).
+- The shared input folder (watcher) is owned by the admin; drag-drop uploads, **Paste**, and **Scan Inbox**
+  assign new tickets to whoever is signed in.
+
+Auth is HTTP Basic over the API; passwords are scrypt-hashed with a per-user salt. Run behind HTTPS (the
+Coolify deploy below terminates TLS) so credentials aren't sent in the clear.
+
 ## Deploy (GitHub → Coolify)
 
 Coolify's default build pack is **Nixpacks**; the repo ships a [`nixpacks.toml`](nixpacks.toml) so it builds

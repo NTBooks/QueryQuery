@@ -69,4 +69,21 @@ export async function parseEml(raw) {
   return { from_addr, from_name, subject, received_at, body: tidy(visible), headers };
 }
 
+/**
+ * Build a minimal, attachment-free .eml from parsed fields. We never look at
+ * attachments, so what we archive is just the headers we care about + plain body.
+ */
+export function buildSanitizedEml({ from_addr, from_name, subject, received_at, body }) {
+  const from = from_name ? `${from_name} <${from_addr}>` : from_addr || 'unknown';
+  return [
+    `From: ${from}`,
+    `Subject: ${subject || ''}`,
+    `Date: ${received_at || ''}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    body || '',
+    '',
+  ].join('\r\n');
+}
+
 export default parseEml;

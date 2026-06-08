@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DEFAULT_CONFIG } from '../shared/defaultConfig.js';
-import { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir, migrateLegacy } from '../paths.js';
+import { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir, userInputDir, userDataDir, migrateLegacy } from '../paths.js';
 
 // Re-export so existing `import { ROOT } from '../configStore.js'` callers keep working.
-export { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir };
+export { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir, userInputDir, userDataDir };
 
 function clone(o) {
   return JSON.parse(JSON.stringify(o));
@@ -56,28 +56,9 @@ export function getConfig() {
   return current;
 }
 export function setConfig(cfg) {
-  const prevCl = (current || loadConfig()).chainletter || {};
-  const merged = mergeDefaults(cfg);
-  // The Chainletter `claim` cache is server-managed (not a UI field). Preserve it
-  // across UI saves while the token URL is unchanged; drop it if the token changed.
-  if (merged.chainletter) {
-    if (merged.chainletter.tokenUrl !== prevCl.tokenUrl) {
-      delete merged.chainletter.claim;
-    } else if (!merged.chainletter.claim && prevCl.claim) {
-      merged.chainletter.claim = prevCl.claim;
-    }
-  }
-  current = merged;
+  current = mergeDefaults(cfg);
   saveConfig(current);
   return current;
-}
-
-/** Persist the single-use Chainletter claim (webhookurl/jwt/groupname/tenant/expires). */
-export function cacheChainletterClaim(claim) {
-  const cfg = current || loadConfig();
-  cfg.chainletter = { ...(cfg.chainletter || {}), claim };
-  current = cfg;
-  saveConfig(cfg);
 }
 
 // --- Stable hash of the scoring-relevant config (drives "stale score" UI) ---

@@ -11,7 +11,6 @@
 //   PATCH {webhookurl}  headers: group-id, auth                                 -> stamp -> {success,message,files_stamped}
 //   GET   {webhookurl}  headers: hash, auth   (NOT group-id — sending both 400s) -> verify
 import Hash from 'ipfs-only-hash';
-import { cacheChainletterClaim } from '../configStore.js';
 
 const EMPTY_FILE_CID = 'QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH';
 
@@ -192,7 +191,25 @@ export async function uploadAndStamp(cl, { buffer, name, mimetype, network = 'pr
   return data;
 }
 
-/** Full certify flow: upload the letter privately, stamp it, return the verify link. */
+/**
+ * Certify the query TEXT: stamp the base64 of it (a tiny .txt) and return that base64
+ * as the author's portable "proof token". The durable proof is the on-chain stamp of
+ * its hash + the base64 the author keeps — we don't rely on any retained original file.
+ */
+export async function certifyText(cl, { text, name }) {
+  const b64 = Buffer.from(String(text), 'utf8').toString('base64');
+  const fileName = `${String(name || 'query').replace(/[^\w.-]/g, '_')}.b64.txt`;
+  const up = await uploadAndStamp(cl, { buffer: Buffer.from(b64, 'utf8'), name: fileName, mimetype: 'text/plain' });
+  return {
+    hash: up.hash, // CID of the base64 bytes — recomputable by the author from the token
+    stampData: b64,
+    network: up.network,
+    stamp: { success: up.success, message: up.message, files_stamped: up.files_stamped },
+    verifyUrl: buildVerifyUrl(cl, up.hash, up),
+  };
+}
+
+/** Full certify flow for raw bytes (e.g. a file): upload privately, stamp, return verify link. */
 export async function certifyBytes(cl, { buffer, name, mimetype }) {
   const localCid = await computeCid(buffer); // cross-check against the server's CID
   const up = await uploadAndStamp(cl, { buffer, name, mimetype });
@@ -250,11 +267,13 @@ function claimToCreds(cl, c) {
 }
 
 /**
- * Resolve ready-to-use credentials from the full config. Reuses the cached claim
- * while valid; otherwise claims the token URL once (single-use) and caches it.
+ * Resolve ready-to-use credentials from a per-user chainletter store. Reuses the
+ * cached claim while valid; otherwise claims the token URL once (single-use) and
+ * persists it via cl.saveClaim(fresh).
+ * @param {{tokenUrl:string, claim?:object, verifyUrlTemplate?:string, saveClaim?:Function}} cl
  */
-export async function resolveCredentials(config) {
-  const cl = (config && config.chainletter) || {};
+export async function resolveCredentials(cl) {
+  cl = cl || {};
   const tokenUrl = (cl.tokenUrl || '').trim();
   if (!tokenUrl) throw new Error('Enter your Chainletter token URL.');
   if (!/\/jwt\//.test(tokenUrl)) throw new Error('That doesn’t look like a token URL (expected …/jwt/…).');
@@ -274,19 +293,21 @@ export async function resolveCredentials(config) {
     tenant: data.tenant,
     expires: data.expires,
   };
-  try {
-    cacheChainletterClaim(fresh); // claim is single-use -> persist so we never re-claim
-  } catch {
-    /* cache best-effort; the returned creds still work for this call */
+  if (typeof cl.saveClaim === 'function') {
+    try {
+      cl.saveClaim(fresh); // claim is single-use -> persist so we never re-claim
+    } catch {
+      /* best-effort; the returned creds still work for this call */
+    }
   }
   return claimToCreds(cl, fresh);
 }
 
 /** Resolve (claim+cache if needed), then verify connectivity/auth against the webhook. */
-export async function testConnection(config) {
+export async function testConnection(clStore) {
   let cl;
   try {
-    cl = await resolveCredentials(config);
+    cl = await resolveCredentials(clStore);
   } catch (e) {
     return { ok: false, message: e.message };
   }

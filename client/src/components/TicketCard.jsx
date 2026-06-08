@@ -51,9 +51,13 @@ export default function TicketCard({ ticket, meta, config, onOpen }) {
         {ticket.ai_disclosed && (
           <WrapItem><Badge variant="subtle" colorScheme="purple">AI disclosed</Badge></WrapItem>
         )}
-        {ticket.cl_stamped && (
-          <WrapItem><Tooltip label="Receipt certified on-chain"><Badge variant="subtle" colorScheme="green">⛓ Certified</Badge></Tooltip></WrapItem>
-        )}
+        <WrapItem>
+          {ticket.cl_stamped ? (
+            <Tooltip label="Receipt blockchain-stamped"><Badge colorScheme="green">⛓ Stamped</Badge></Tooltip>
+          ) : (
+            <Tooltip label="Not yet certified"><Badge variant="outline" colorScheme="gray">Not stamped</Badge></Tooltip>
+          )}
+        </WrapItem>
         {aiHigh && (
           <WrapItem>
             <Tooltip label={`AI-suspicion ${ticket.ai_suspicion}/100 — advisory only`}>

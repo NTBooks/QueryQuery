@@ -3,15 +3,17 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfig, configHash, inputDir } from '../configStore.js';
+import { getConfig, configHash, userInputDir } from '../configStore.js';
 import { ingestFolder } from '../services/ingest.js';
 import { bumpRevision } from '../services/revision.js';
 
 const r = Router();
 
+const MAX_EML_BYTES = 2 * 1024 * 1024;
+
 r.get('/', (req, res) => {
   const config = getConfig();
-  const dir = inputDir(config);
+  const dir = userInputDir(config, req.user.id);
   let exists = false;
   let files = [];
   try {
@@ -48,7 +50,7 @@ r.get('/', (req, res) => {
 // the input folder and ingest. (Plain text — no multipart, no binary handling.)
 r.post('/upload', async (req, res) => {
   const config = getConfig();
-  const dir = inputDir(config);
+  const dir = userInputDir(config, req.user.id);
   fs.mkdirSync(dir, { recursive: true });
 
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
@@ -58,6 +60,11 @@ r.post('/upload', async (req, res) => {
   const errors = [];
   for (const f of files) {
     try {
+      const content = String(f.content ?? '');
+      if (Buffer.byteLength(content, 'utf8') > MAX_EML_BYTES) {
+        errors.push({ name: f.name, message: 'Too large — strip attachments before uploading.' });
+        continue;
+      }
       let name = path.basename(String(f.name || 'query.eml')).replace(/[^\w.\- ]/g, '_');
       if (!name.toLowerCase().endsWith('.eml')) name += '.eml';
       let dest = path.join(dir, name);
@@ -65,14 +72,14 @@ r.post('/upload', async (req, res) => {
         name = `${Date.now()}-${name}`;
         dest = path.join(dir, name);
       }
-      fs.writeFileSync(dest, String(f.content ?? ''), 'utf8');
+      fs.writeFileSync(dest, content, 'utf8');
       written += 1;
     } catch (err) {
       errors.push({ name: f.name, message: err.message });
     }
   }
 
-  const summary = await ingestFolder(config, configHash(config));
+  const summary = await ingestFolder(config, configHash(config), req.user.id);
   bumpRevision();
   res.json({ written, errors, ...summary });
 });

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getConfig, setConfig, configHash } from '../configStore.js';
+import { requireAdmin } from '../auth.js';
 
 const r = Router();
 
@@ -8,7 +9,8 @@ r.get('/', (req, res) => {
   res.json({ config, configHash: configHash(config) });
 });
 
-r.put('/', (req, res) => {
+// The shared scoring + LLM config is admin-managed.
+r.put('/', requireAdmin, (req, res) => {
   const incoming = req.body?.config ?? req.body;
   if (!incoming || typeof incoming !== 'object') {
     return res.status(400).json({ error: 'Invalid config payload' });

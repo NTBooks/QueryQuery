@@ -32,7 +32,7 @@ function summaryMessages(t) {
 
 r.post('/summarize', async (req, res) => {
   const config = getConfig();
-  const t = repo.getRawById(Number(req.body?.id));
+  const t = repo.getRawByIdOwned(Number(req.body?.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
   try {
     const content = await chatComplete(config, {
@@ -69,7 +69,7 @@ const TRIAGE_SCHEMA = {
 
 r.post('/triage', async (req, res) => {
   const config = getConfig();
-  const t = repo.getRawById(Number(req.body?.id));
+  const t = repo.getRawByIdOwned(Number(req.body?.id), req.user.id);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
   try {
     const content = await chatComplete(config, {
@@ -148,7 +148,7 @@ r.post('/extract', async (req, res) => {
   let subject = '';
   let id = null;
   if (req.body?.id != null) {
-    const t = repo.getRawById(Number(req.body.id));
+    const t = repo.getRawByIdOwned(Number(req.body.id), req.user.id);
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     text = t.body;
     subject = t.subject || '';
