@@ -13,16 +13,18 @@ function LlmError({ status }) {
   return (
     <Alert status="error" borderRadius="md" flexDirection="column" alignItems="stretch" gap={2} fontSize="sm">
       <HStack><AlertIcon /><Text fontWeight="600">{status.reachable ? `Request failed: ${status.error}` : `Not reachable — ${status.error || 'is the server running?'}`}</Text></HStack>
-      {d.isCloudflareAccess ? (
+      {d.egressIp && (
         <Text pl={6}>
-          Behind <b>Cloudflare Access</b> (Zero Trust). Add {d.detectedIp ? <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code> : 'your server’s egress IP'} to
-          an Access <b>bypass</b> policy — or configure a service token. (A plain IP allow-list won’t cover Access.)
+          Your server’s outbound IP (what the remote host sees): <Code colorScheme="red" fontWeight="700">{d.egressIp}</Code>
+          {d.isCloudflareAccess ? ' — add it to a Cloudflare Access bypass policy (or use a service token; a plain IP allow-list won’t cover Access).' : ' — add it to the allow-list.'}
         </Text>
-      ) : d.detectedIp ? (
-        <Text pl={6}>
-          Looks like an IP allow-list block. Add this IP: <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code>
-        </Text>
-      ) : null}
+      )}
+      {d.isCloudflareAccess && !d.egressIp && (
+        <Text pl={6}>Behind <b>Cloudflare Access</b> (Zero Trust) — add your server’s egress IP to an Access <b>bypass</b> policy, or use a service token.</Text>
+      )}
+      {d.labeledIp && d.labeledIp !== d.egressIp && (
+        <Text pl={6} fontSize="xs" color="gray.600">Page also reports a client IP: <Code fontSize="xs">{d.labeledIp}</Code></Text>
+      )}
       {(d.url || d.status || d.contentType || d.server || d.cfRay) && (
         <Text pl={6} fontSize="xs" color="gray.700">
           {d.status ? `${d.status} ${d.statusText || ''} · ` : ''}{d.contentType || ''}{d.server ? ` · server: ${d.server}` : ''}{d.cfRay ? ` · ray: ${d.cfRay}` : ''}

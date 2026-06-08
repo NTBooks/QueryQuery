@@ -37,20 +37,55 @@ const LABEL = "(?:client[_-]?ip|your ip(?: address)?|ip address|cf-connecting-ip
 const LABELED_TOKEN = new RegExp(`${LABEL}([0-9A-Fa-f:.]{2,45})`, 'i');
 const V4_RE = new RegExp(`^${IPV4}$`);
 const V6_RE = new RegExp(`^${IPV6}$`);
-const STRICT_V4 = new RegExp(IPV4, 'g');
-
-/** Find the most likely client IP (v4 or v6) in an error page, avoiding false positives. */
-function findClientIp(body) {
+/**
+ * Find a client IP the error page explicitly LABELS (e.g. "Your IP address: …").
+ * We never scrape unlabeled numbers — those are unreliable (random page values).
+ */
+function findLabeledIp(body) {
   if (!body) return null;
-  const m = body.match(LABELED_TOKEN); // a labeled IP (v4 or v6) is the safest signal
+  const m = body.match(LABELED_TOKEN);
   if (m) {
-    const tok = m[1].replace(/[.:]+$/, ''); // trim trailing punctuation
+    const tok = m[1].replace(/[.:]+$/, '');
     if (V6_RE.test(tok) || V4_RE.test(tok)) return tok;
   }
-  // Standalone fallback is IPv4-only (a bare IPv6 regex would match CSS like "::before").
-  const all = body.match(STRICT_V4) || [];
-  const isPrivate = (ip) => /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|255\.)/.test(ip);
-  return all.find((ip) => !isPrivate(ip)) || all[0] || null;
+  return null;
+}
+
+async function readText(u, timeoutMs = 5000) {
+  try {
+    const r = await fetchWithTimeout(u, {}, timeoutMs);
+    if (!r.ok) return null;
+    return await r.text();
+  } catch {
+    return null;
+  }
+}
+
+/** Detect this server's real outbound IP — the address the remote host/Cloudflare sees. */
+async function detectEgressIp(url) {
+  let origin = null;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    /* ignore */
+  }
+  const traceIp = (t) => {
+    const m = t && t.match(/(?:^|\n)\s*ip=([^\s\n]+)/i);
+    return m ? m[1].trim() : null;
+  };
+  const sources = [
+    origin ? async () => traceIp(await readText(`${origin}/cdn-cgi/trace`)) : null, // the LLM host's own edge
+    async () => traceIp(await readText('https://www.cloudflare.com/cdn-cgi/trace')),
+    async () => {
+      const t = await readText('https://api64.ipify.org');
+      return t ? t.trim().split(/\s/)[0] : null;
+    },
+  ].filter(Boolean);
+  for (const get of sources) {
+    const ip = await get();
+    if (ip && (V4_RE.test(ip) || V6_RE.test(ip))) return ip;
+  }
+  return null;
 }
 
 /** Probe LM Studio + enumerate models. Never throws. On failure, returns full detail. */
@@ -65,8 +100,6 @@ export async function llmStatus(config) {
       } catch {
         /* ignore */
       }
-      // Cloudflare / WAF blocks often return an HTML page naming the IP to allow.
-      const detectedIp = findClientIp(body);
       const isCloudflareAccess = /cloudflare access/i.test(body) || /\/cdn-cgi\/access\//i.test(body);
       return {
         reachable: true,
@@ -81,7 +114,8 @@ export async function llmStatus(config) {
           server: res.headers.get('server') || '',
           cfRay: res.headers.get('cf-ray') || '',
           isCloudflareAccess,
-          detectedIp,
+          egressIp: await detectEgressIp(url), // your server's real outbound IP — the one to allow-list
+          labeledIp: findLabeledIp(body), // only if the page explicitly states it
           body: body.slice(0, 16000),
         },
       };
@@ -99,7 +133,7 @@ export async function llmStatus(config) {
       models: [],
       loadedModel: null,
       error: err.name === 'AbortError' ? 'LM Studio not reachable (timeout)' : err.message,
-      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '' },
+      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '', egressIp: await detectEgressIp(url) },
     };
   }
 }
