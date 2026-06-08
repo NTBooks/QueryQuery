@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Flex, HStack, VStack, Button, Heading, Text, Spinner, useToast, useDisclosure, Badge, Spacer,
+  Menu, MenuButton, MenuList, MenuItem,
 } from '@chakra-ui/react';
-import { FiRefreshCw, FiInbox, FiGrid, FiSliders, FiCpu, FiFilePlus, FiFolder, FiArchive } from 'react-icons/fi';
+import { FiGrid, FiSliders, FiCpu, FiSettings, FiChevronDown } from 'react-icons/fi';
 import ClGlyph from './components/ClGlyph.jsx';
 import api, { setOnUnauthorized, getAuth } from './api.js';
 import Login from './components/Login.jsx';
@@ -264,41 +265,44 @@ export default function App() {
         </HStack>
         <HStack spacing={1} ml={6}>
           <NavButton icon={<FiGrid />} label="Board" active={view === 'board'} onClick={() => setView('board')} />
-          <NavButton icon={<FiFilePlus />} label="Paste" active={view === 'paste'} onClick={() => setView('paste')} />
-          {user.role === 'admin' && (
-            <NavButton icon={<FiSliders />} label="Configuration" active={view === 'config'} onClick={() => setView('config')} />
-          )}
-          {user.role === 'admin' && (
-            <NavButton icon={<FiCpu />} label="Local LLM" active={view === 'settings'} onClick={() => setView('settings')} />
-          )}
-          <NavButton icon={<ClGlyph />} label="Chainletter" active={view === 'chainletter'} onClick={() => setView('chainletter')} />
+          <Menu>
+            <MenuButton
+              as={Button}
+              size="sm"
+              leftIcon={<FiSettings />}
+              rightIcon={<FiChevronDown />}
+              variant={['config', 'settings', 'chainletter'].includes(view) ? 'solid' : 'ghost'}
+              colorScheme={['config', 'settings', 'chainletter'].includes(view) ? 'brand' : 'gray'}
+            >
+              Settings
+            </MenuButton>
+            <MenuList>
+              {user.role === 'admin' && <MenuItem icon={<FiSliders />} onClick={() => setView('config')}>Configuration</MenuItem>}
+              {user.role === 'admin' && <MenuItem icon={<FiCpu />} onClick={() => setView('settings')}>Local LLM</MenuItem>}
+              <MenuItem icon={<ClGlyph />} onClick={() => setView('chainletter')}>Chainletter</MenuItem>
+            </MenuList>
+          </Menu>
         </HStack>
         <Spacer />
-        <HStack>
-          {staleCount > 0 && (
-            <Badge colorScheme="orange" variant="subtle" px={2} py={1} borderRadius="md">
-              {staleCount} stale — re-score
-            </Badge>
-          )}
-          <Button leftIcon={<FiFolder />} onClick={inboxModal.onOpen} variant="ghost" colorScheme="gray">
-            Inbox folder
-          </Button>
-          <Button leftIcon={<FiInbox />} onClick={scanInbox} isLoading={busy} variant="outline">
-            Scan Inbox
-          </Button>
-          <Button leftIcon={<FiRefreshCw />} onClick={rescoreAll} isLoading={busy} variant="ghost" colorScheme="gray">
-            Re-score
-          </Button>
-          <Button leftIcon={<FiArchive />} onClick={archiveModal.onOpen} variant="ghost" colorScheme="gray">
-            Archive
-          </Button>
-          <AccountMenu user={user} onLogout={handleLogout} />
-        </HStack>
+        <AccountMenu user={user} onLogout={handleLogout} onShowInbox={inboxModal.onOpen} />
       </Flex>
 
       <Box flex="1" overflow="hidden">
         {view === 'board' && (
-          <Board meta={meta} config={config} tickets={tickets} onStatus={updateStatus} onOpen={openTicket} onScan={scanInbox} onShowFolder={inboxModal.onOpen} />
+          <Board
+            meta={meta}
+            config={config}
+            tickets={tickets}
+            staleCount={staleCount}
+            busy={busy}
+            onStatus={updateStatus}
+            onOpen={openTicket}
+            onScan={scanInbox}
+            onShowFolder={inboxModal.onOpen}
+            onPaste={() => setView('paste')}
+            onRescore={rescoreAll}
+            onArchive={archiveModal.onOpen}
+          />
         )}
         {view === 'paste' && (
           <Box h="100%" overflowY="auto" p={6}>

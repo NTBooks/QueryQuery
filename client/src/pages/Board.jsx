@@ -1,16 +1,16 @@
 import { useMemo, useState } from 'react';
 import {
   Box, Flex, Grid, GridItem, HStack, Heading, Text, Badge, Input, InputGroup, InputLeftElement,
-  IconButton, Button, Stack,
+  IconButton, Button, Stack, Spacer,
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronDown, FiChevronRight, FiInbox, FiFolder } from 'react-icons/fi';
+import { FiSearch, FiChevronDown, FiChevronRight, FiInbox, FiFolder, FiFilePlus, FiRefreshCw, FiArchive } from 'react-icons/fi';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import TicketCard from '../components/TicketCard.jsx';
 import { bandColor } from '../lib/format.js';
 
 const CELL_CAP = 80;
 
-export default function Board({ meta, config, tickets, onStatus, onOpen, onScan, onShowFolder }) {
+export default function Board({ meta, config, tickets, staleCount = 0, busy, onStatus, onOpen, onScan, onShowFolder, onPaste, onRescore, onArchive }) {
   const states = meta?.states || [];
   const bands = config?.scoreBands || [];
   const [query, setQuery] = useState('');
@@ -87,14 +87,21 @@ export default function Board({ meta, config, tickets, onStatus, onOpen, onScan,
   return (
     <Flex direction="column" h="100%">
       {/* Toolbar */}
-      <Flex px={5} py={3} align="center" gap={4} bg="gray.50">
-        <InputGroup maxW="320px" bg="white" borderRadius="md">
+      <Flex px={5} py={3} align="center" gap={2} bg="gray.50">
+        <InputGroup maxW="300px" bg="white" borderRadius="md">
           <InputLeftElement pointerEvents="none"><FiSearch color="gray" /></InputLeftElement>
           <Input placeholder="Search title, author, subject…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </InputGroup>
-        <Text color="gray.500" fontSize="sm">{filtered.length} shown</Text>
+        <Text color="gray.500" fontSize="sm" flexShrink={0}>{filtered.length} shown</Text>
+        {staleCount > 0 && (
+          <Badge colorScheme="orange" variant="subtle" px={2} py={1} borderRadius="md" flexShrink={0}>{staleCount} stale</Badge>
+        )}
+        <Spacer />
+        <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiFilePlus />} onClick={onPaste}>Paste</Button>
+        <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiRefreshCw />} onClick={onRescore} isLoading={busy}>Re-score</Button>
+        <Button size="sm" variant="ghost" colorScheme="gray" leftIcon={<FiArchive />} onClick={onArchive}>Archive</Button>
         <Button
-          size="sm" variant="ghost" colorScheme="gray" ml="auto"
+          size="sm" variant="ghost" colorScheme="gray"
           leftIcon={allCollapsed ? <FiChevronDown /> : <FiChevronRight />}
           onClick={() => setAll(!allCollapsed)}
         >

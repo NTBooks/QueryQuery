@@ -5,7 +5,7 @@ import {
   FormControl, FormLabel, Input, VStack, useDisclosure, useToast, Alert, AlertIcon,
   Table, Thead, Tbody, Tr, Th, Td, IconButton, Spinner,
 } from '@chakra-ui/react';
-import { FiUser, FiChevronDown, FiKey, FiUsers, FiLogOut } from 'react-icons/fi';
+import { FiUser, FiChevronDown, FiKey, FiUsers, FiLogOut, FiFolder } from 'react-icons/fi';
 import api from '../api.js';
 
 function ChangePasswordModal({ isOpen, onClose }) {
@@ -117,7 +117,7 @@ function UsersModal({ isOpen, onClose, meId }) {
   );
 }
 
-export default function AccountMenu({ user, onLogout }) {
+export default function AccountMenu({ user, onLogout, onShowInbox }) {
   const pw = useDisclosure();
   const users = useDisclosure();
   return (
@@ -130,6 +130,7 @@ export default function AccountMenu({ user, onLogout }) {
           </HStack>
         </MenuButton>
         <MenuList>
+          {onShowInbox && <MenuItem icon={<FiFolder />} onClick={onShowInbox}>Inbox folder</MenuItem>}
           <MenuItem icon={<FiKey />} onClick={pw.onOpen}>Change password</MenuItem>
           {user.role === 'admin' && <MenuItem icon={<FiUsers />} onClick={users.onOpen}>Manage users</MenuItem>}
           <MenuDivider />
