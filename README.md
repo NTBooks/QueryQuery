@@ -11,15 +11,23 @@ an advisory second opinion, and it never overrides the heuristics.
 
 ## Quick start
 
-Uses **pnpm**. (`corepack enable` if you don't have it.)
+**Prerequisites:** [Node.js](https://nodejs.org) **22.13+** and **pnpm** (run `corepack enable` if you don't have pnpm). No native build step — the database uses Node's built-in SQLite (`node:sqlite`), so there's nothing to compile.
 
 ```bash
+git clone <this-repo> && cd queryquery
 cp .env.example .env  # sets PERSIST_DIR (where the db + input/ live); defaults to ./persist
 pnpm install          # installs client + server deps
+pnpm start            # builds the client, finds a free port, starts the server, opens the browser
+```
+
+That's the whole "download and run." On first start the terminal prints the local URL **and a one-time admin username + password** — copy them to sign in. (Set `ADMIN_PASSWORD` in `.env` before the first run to choose your own.)
+
+Want sample data to explore? Either drag the bundled **`sample-data.zip`** letters onto the window (see *Try the demo* below), or generate a corpus:
+
+```bash
 pnpm gen-samples      # generate ~520 self-labeled sample letters (offline, no AI)
 pnpm scrape           # (optional) scrape ~80 real "good" letters from thejohnfox.com
 pnpm seed-input       # copy samples into PERSIST_DIR/input
-pnpm start            # build the client, find a free port, open the browser
 ```
 
 Then click **Scan Inbox**. To use your own data, drop `.eml` files into `<PERSIST_DIR>/input`
@@ -45,8 +53,9 @@ pnpm dev             # Vite dev server (5173) + Express API (4711)
 
 ## Accounts
 
-QueryQuery is multi-user. On first run a default **admin / admin** account is created — sign in and
-**change the password** immediately (account menu, top-right).
+QueryQuery is multi-user. On first run an **admin** account is created with a **random password printed once to
+the terminal / server log** — copy it from there to sign in. (Set `ADMIN_PASSWORD` before the first start to
+choose your own.) Change it any time from the account menu (top-right). Passwords must be at least 12 characters.
 
 - **Register** your own account from the sign-in screen; each user has their own board (every ticket is
   owned by its creator) and their own **Chainletter** token (the API key is per-user).
@@ -72,8 +81,8 @@ with no extra config.
    `PERSIST_DIR` env var to match.
 5. Deploy. Health check is `GET /api/health`.
 
-`nixpacks.toml` builds the client (`pnpm run build`), runs `node server/index.js`, and installs `python3` +
-`build-essential` so `better-sqlite3` is covered. In a hosted container there's no auto-open browser, and the
+`nixpacks.toml` builds the client (`pnpm run build`) and runs `node server/index.js` — no native build deps,
+since the database is Node's built-in `node:sqlite`. In a hosted container there's no auto-open browser, and the
 app binds `0.0.0.0`. A local LM Studio at `127.0.0.1:1234` isn't reachable from a remote container — the LLM
 features simply stay disabled there (heuristics and Chainletter still work). Add letters via drag-and-drop
 upload, the **Paste** tab, or the watched `<PERSIST_DIR>/input` folder.

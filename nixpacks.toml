@@ -6,10 +6,8 @@ PORT = "3000"
 QQ_NO_OPEN = "1"
 PERSIST_DIR = "/app/persist"
 
-# Build tools so better-sqlite3 can compile if no prebuilt binary is available.
-# (A prebuilt usually exists for linux-x64, so this is just a safety net.)
-[phases.setup]
-aptPkgs = ["python3", "build-essential"]
+# No native build deps — the DB uses Node's built-in node:sqlite. (Needs Node
+# >= 22.13; .nvmrc pins 22.)
 
 # Build the React client into dist/ (the server serves it in production).
 [phases.build]
@@ -18,4 +16,4 @@ cmds = ["pnpm run build"]
 # Run the server only — no rebuild. NODE_ENV is set inline here (NOT in [variables])
 # so it doesn't switch pnpm to prod-only and skip the dev deps needed for the build.
 [start]
-cmd = "NODE_ENV=production node server/index.js"
+cmd = "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.js"

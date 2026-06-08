@@ -1,9 +1,10 @@
 # QueryQuery — container image for self-hosting (e.g. Coolify).
 FROM node:22-bookworm-slim
 
-# Toolchain in case better-sqlite3 has to compile (a prebuilt is used when available).
+# No build toolchain needed — the DB uses Node's built-in node:sqlite (no native
+# modules). ca-certificates is for outbound HTTPS (Chainletter).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable
@@ -37,4 +38,4 @@ USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server/index.js"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "server/index.js"]

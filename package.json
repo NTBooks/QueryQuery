@@ -6,14 +6,14 @@
   "description": "Local, heuristic triage for literary query letters (.eml) — a slush-pile ticketing system that needs no AI (LM Studio optional).",
   "packageManager": "pnpm@10.30.2",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=22.13"
   },
   "bin": {
     "queryquery": "server/index.js"
   },
   "scripts": {
-    "start": "vite build && cross-env NODE_ENV=production node server/index.js",
-    "serve": "cross-env NODE_ENV=production node server/index.js",
+    "start": "vite build && cross-env NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.js",
+    "serve": "cross-env NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.js",
     "build": "vite build",
     "dev": "concurrently -n server,client -c blue,green \"cross-env NODE_ENV=development PORT=4711 nodemon server/index.js\" \"vite\"",
     "scrape": "node scripts/scrape-johnfox.js",
@@ -28,7 +28,6 @@
     "@emotion/react": "^11.13.5",
     "@emotion/styled": "^11.13.5",
     "@hello-pangea/dnd": "^16.6.0",
-    "better-sqlite3": "^11.8.1",
     "chakra-react-select": "^4.9.2",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.7",
@@ -53,7 +52,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "esbuild",
       "protobufjs"
     ]

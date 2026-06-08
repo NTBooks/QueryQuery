@@ -1,12 +1,15 @@
-// SQLite connection + schema migration (better-sqlite3, synchronous).
-import Database from 'better-sqlite3';
+// SQLite connection + schema migration. Uses Node's built-in node:sqlite
+// (synchronous) — no native module, no compile step. Requires Node >= 22.13.
+// The run scripts pass --disable-warning=ExperimentalWarning to mute node:sqlite's
+// one-time experimental notice (it fires at builtin-link time, before user code).
+import { DatabaseSync } from 'node:sqlite';
 import { DB_PATH, migrateLegacy } from '../paths.js';
 import { genId, hashPasswordSync, genPassword } from './password.js';
 
 migrateLegacy(); // ensure PERSIST_DIR exists + bring forward any legacy db
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+const db = new DatabaseSync(DB_PATH);
+db.exec('PRAGMA journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tickets (
@@ -131,7 +134,8 @@ if (adminId) db.prepare('UPDATE tickets SET owner_id=? WHERE owner_id IS NULL').
 // UNIQUE(owner_id, source_file) so two users can import identical filenames.
 const hasComposite = db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='uniq_owner_source'").get();
 if (!hasComposite) {
-  const rebuild = db.transaction(() => {
+  db.exec('BEGIN');
+  try {
     db.exec(`
       CREATE TABLE tickets_new (
         id INTEGER PRIMARY KEY,
@@ -162,8 +166,11 @@ if (!hasComposite) {
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);');
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_band ON tickets(score_band);');
     db.exec('CREATE UNIQUE INDEX uniq_owner_source ON tickets(owner_id, source_file);');
-  });
-  rebuild();
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 export default db;
