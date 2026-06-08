@@ -41,3 +41,6 @@ Thumbs.db
 
 # Claude Code local settings (personal, not shared)
 .claude/settings.local.json
+
+# Chainletter setup notes — contains example token/host info, keep out of the public repo
+CHAINLETTER_TOKEN.MD

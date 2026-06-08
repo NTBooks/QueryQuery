@@ -163,7 +163,9 @@ export function buildVerifyUrl(cl, cid, ...bodies) {
   for (const b of bodies) {
     if (b && typeof b === 'object') {
       const u = b.verifyUrl || b.verificationUrl || b.url || b.link;
-      if (u) return u;
+      // Only trust http(s) links from the API — never a javascript:/data: URL that
+      // would become an XSS sink when rendered as an <a href> in the client.
+      if (u && /^https?:\/\//i.test(String(u))) return u;
     }
   }
   // Author-facing verification link lives on the public tenant host.

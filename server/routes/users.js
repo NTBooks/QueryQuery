@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import repo from '../repo.js';
 import { requireAuth, requireAdmin, invalidateAuthCache } from '../auth.js';
+import { validatePassword } from '../passwordPolicy.js';
 
 const r = Router();
 
@@ -13,9 +14,10 @@ r.get('/', (req, res) => {
 
 r.post('/:id/reset-password', async (req, res) => {
   const newPassword = String(req.body?.newPassword || '');
-  if (newPassword.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   const target = repo.getUserById(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found' });
+  const pw = validatePassword(newPassword, { username: target.username });
+  if (!pw.ok) return res.status(400).json({ error: pw.error });
   await repo.setPassword(target.id, newPassword);
   invalidateAuthCache();
   res.json({ ok: true });

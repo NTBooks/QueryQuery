@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import {
   Menu, MenuButton, MenuList, MenuItem, MenuDivider, Button, Badge, HStack, Text,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter,
-  FormControl, FormLabel, Input, VStack, useDisclosure, useToast, Alert, AlertIcon,
+  FormControl, FormLabel, FormHelperText, Input, VStack, useDisclosure, useToast, Alert, AlertIcon,
   Table, Thead, Tbody, Tr, Th, Td, IconButton, Spinner,
 } from '@chakra-ui/react';
 import { FiUser, FiChevronDown, FiKey, FiUsers, FiLogOut, FiFolder } from 'react-icons/fi';
 import api from '../api.js';
+
+// Mirror of server/passwordPolicy.js PASSWORD_MIN_LENGTH (keep in sync).
+const PW_MIN = 12;
 
 function ChangePasswordModal({ isOpen, onClose }) {
   const toast = useToast();
@@ -39,12 +42,16 @@ function ChangePasswordModal({ isOpen, onClose }) {
           <VStack spacing={3} align="stretch">
             {err && <Alert status="error" borderRadius="md" fontSize="sm" py={2}><AlertIcon />{err}</Alert>}
             <FormControl isRequired><FormLabel>Current password</FormLabel><Input type="password" value={cur} onChange={(e) => setCur(e.target.value)} /></FormControl>
-            <FormControl isRequired><FormLabel>New password</FormLabel><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} /></FormControl>
+            <FormControl isRequired>
+              <FormLabel>New password</FormLabel>
+              <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+              <FormHelperText>At least {PW_MIN} characters.</FormHelperText>
+            </FormControl>
           </VStack>
         </ModalBody>
         <ModalFooter>
           <Button variant="ghost" mr={3} onClick={onClose}>Cancel</Button>
-          <Button colorScheme="brand" onClick={submit} isLoading={busy} isDisabled={!cur || next.length < 4}>Change</Button>
+          <Button colorScheme="brand" onClick={submit} isLoading={busy} isDisabled={!cur || next.length < PW_MIN}>Change</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>
@@ -98,8 +105,8 @@ function UsersModal({ isOpen, onClose, meId }) {
                     <Td textAlign="right">
                       {resetting === u.id ? (
                         <HStack justify="flex-end">
-                          <Input size="xs" w="140px" type="password" placeholder="new password" value={pw} onChange={(e) => setPw(e.target.value)} />
-                          <Button size="xs" colorScheme="brand" onClick={() => doReset(u.id)} isDisabled={pw.length < 4}>Set</Button>
+                          <Input size="xs" w="160px" type="password" placeholder={`new password (${PW_MIN}+ chars)`} value={pw} onChange={(e) => setPw(e.target.value)} />
+                          <Button size="xs" colorScheme="brand" onClick={() => doReset(u.id)} isDisabled={pw.length < PW_MIN}>Set</Button>
                           <IconButton aria-label="cancel" size="xs" variant="ghost" icon={<Text>×</Text>} onClick={() => { setResetting(null); setPw(''); }} />
                         </HStack>
                       ) : (

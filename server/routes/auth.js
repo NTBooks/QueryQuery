@@ -5,6 +5,7 @@ import { verifyPassword } from '../password.js';
 import { authenticate, requireAuth, invalidateAuthCache } from '../auth.js';
 import { registrationOpen } from '../featureFlags.js';
 import { rateLimit } from '../rateLimit.js';
+import { validatePassword } from '../passwordPolicy.js';
 
 const r = Router();
 
@@ -42,7 +43,8 @@ r.post('/register', registerLimiter, async (req, res) => {
   if (!USERNAME_RE.test(username)) {
     return res.status(400).json({ error: 'Username must be 2–32 chars (letters, numbers, . _ -).' });
   }
-  if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  const pw = validatePassword(password, { username });
+  if (!pw.ok) return res.status(400).json({ error: pw.error });
   if (repo.getUserByUsername(username)) return res.status(409).json({ error: 'That username is taken.' });
   const user = await repo.createUser({ username, password, role: 'user' });
   res.status(201).json({ user });
@@ -54,7 +56,8 @@ r.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
 r.post('/password', requireAuth, async (req, res) => {
   const currentPassword = String(req.body?.currentPassword || '');
   const newPassword = String(req.body?.newPassword || '');
-  if (newPassword.length < 4) return res.status(400).json({ error: 'New password must be at least 4 characters.' });
+  const pw = validatePassword(newPassword, { username: req.user.username });
+  if (!pw.ok) return res.status(400).json({ error: pw.error });
   const row = repo.getUserById(req.user.id);
   if (!row || !(await verifyPassword(currentPassword, row.pw_salt, row.pw_hash))) {
     return res.status(403).json({ error: 'Current password is incorrect.' });
