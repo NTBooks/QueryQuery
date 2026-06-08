@@ -1,6 +1,6 @@
 // "Certify Receipt" — blockchain-stamp a hash of the original letter, then show
 // the verification link and a copy-paste reply for the author.
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box, Flex, Button, Heading, Text, VStack, HStack, Badge, Alert, AlertIcon, Code, Link,
   useClipboard, useToast,
@@ -42,13 +42,20 @@ function DownloadButton({ filename, content, type, label }) {
   );
 }
 
-export default function CertifyPanel({ ticket, config, onCertified }) {
+export default function CertifyPanel({ ticket, onCertified }) {
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
+  // Chainletter is per-user — read the current user's setting, not the global config.
+  const [cl, setCl] = useState(undefined); // undefined = loading
 
-  if (!config?.chainletter?.enabled) {
+  useEffect(() => {
+    api.getChainletter().then(setCl).catch(() => setCl(null));
+  }, []);
+
+  if (cl === undefined) return null; // still loading the user's setting
+  if (!cl?.enabled) {
     return (
       <Alert status="info" borderRadius="md" fontSize="sm">
         <AlertIcon />Enable Chainletter in the “Chainletter” tab to certify receipts.
