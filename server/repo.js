@@ -36,7 +36,7 @@ const stmts = {
   allByOwner: db.prepare('SELECT * FROM tickets WHERE owner_id = ? AND archived_iteration IS NULL ORDER BY score DESC, id ASC'),
   byId: db.prepare('SELECT * FROM tickets WHERE id = ?'),
   byIdOwned: db.prepare('SELECT * FROM tickets WHERE id = ? AND owner_id = ?'),
-  byFile: db.prepare('SELECT id, status FROM tickets WHERE source_file = ?'),
+  byFile: db.prepare('SELECT id, status FROM tickets WHERE source_file = ? AND owner_id = ?'),
   // board archiving
   maxIter: db.prepare('SELECT MAX(archived_iteration) AS m FROM tickets WHERE owner_id = ?'),
   archiveActive: db.prepare('UPDATE tickets SET archived_iteration=@iter, archive_comment=@comment, archived_at=@now WHERE owner_id=@owner AND archived_iteration IS NULL'),
@@ -51,6 +51,7 @@ const stmts = {
   setPw: db.prepare('UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?'),
   setUserCl: db.prepare('UPDATE users SET cl_token_url=?, cl_enabled=?, cl_claim=? WHERE id=?'),
   setUserClaimStmt: db.prepare('UPDATE users SET cl_claim=? WHERE id=?'),
+  setUserConfigStmt: db.prepare('UPDATE users SET config=? WHERE id=?'),
   insert: db.prepare(`
     INSERT INTO tickets
       (source_file, from_addr, from_name, subject, received_at, body, components,
@@ -81,7 +82,7 @@ const stmts = {
   updateTriage: db.prepare('UPDATE tickets SET llm_triage=?, updated_at=? WHERE id=?'),
   updateExtract: db.prepare('UPDATE tickets SET llm_extract=?, updated_at=? WHERE id=?'),
   updateCert: db.prepare('UPDATE tickets SET cl_cid=?, cl_stamped=1, cl_stamped_at=?, cl_result=?, updated_at=? WHERE id=?'),
-  setArchive: db.prepare('UPDATE tickets SET archive_zip=?, updated_at=? WHERE source_file=?'),
+  setArchive: db.prepare('UPDATE tickets SET archive_zip=?, updated_at=? WHERE source_file=? AND owner_id=?'),
   del: db.prepare('DELETE FROM tickets WHERE id=?'),
   count: db.prepare('SELECT COUNT(*) AS n FROM tickets'),
 };
@@ -95,7 +96,7 @@ export const repo = {
   getRawById: (id) => stmts.byId.get(id),
   getRawByIdOwned: (id, ownerId) => stmts.byIdOwned.get(id, ownerId),
   getByIdOwned: (id, ownerId) => rowToTicket(stmts.byIdOwned.get(id, ownerId)),
-  findByFile: (file) => stmts.byFile.get(file),
+  findByFile: (file, ownerId) => stmts.byFile.get(file, ownerId),
   insert: (row) => stmts.insert.run(row),
 
   // --- users ---
@@ -117,6 +118,7 @@ export const repo = {
   setUserChainletter: (id, { tokenUrl, enabled, claim }) =>
     stmts.setUserCl.run(tokenUrl || '', enabled ? 1 : 0, claim ? JSON.stringify(claim) : null, id),
   setUserClaim: (id, claim) => stmts.setUserClaimStmt.run(claim ? JSON.stringify(claim) : null, id),
+  setUserConfig: (id, json) => stmts.setUserConfigStmt.run(json, id),
 
   // --- board archiving ---
   archiveBoard: (ownerId, comment) => {
@@ -134,7 +136,7 @@ export const repo = {
   setTriage: (id, triageJson, now) => stmts.updateTriage.run(triageJson, now, id),
   setExtract: (id, extractJson, now) => stmts.updateExtract.run(extractJson, now, id),
   setCertification: (id, cid, resultJson, now) => stmts.updateCert.run(cid, now, resultJson, now, id),
-  setArchiveZip: (sourceFile, zip, now) => stmts.setArchive.run(zip, now, sourceFile),
+  setArchiveZip: (sourceFile, zip, now, ownerId) => stmts.setArchive.run(zip, now, sourceFile, ownerId),
   remove: (id) => stmts.del.run(id),
   count: () => stmts.count.get().n,
 };

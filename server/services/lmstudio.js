@@ -21,13 +21,37 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
   }
 }
 
-/** Probe LM Studio + enumerate models. Never throws. */
+const IP_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
+
+/** Probe LM Studio + enumerate models. Never throws. On failure, returns full detail. */
 export async function llmStatus(config) {
   const url = `${baseUrl(config)}/models`;
   try {
-    const res = await fetchWithTimeout(url, { headers: authHeaders(config) }, 5000);
+    const res = await fetchWithTimeout(url, { headers: authHeaders(config) }, 8000);
     if (!res.ok) {
-      return { reachable: true, models: [], loadedModel: null, error: `HTTP ${res.status}` };
+      let body = '';
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
+      // Cloudflare / WAF blocks often return an HTML page naming the IP to allow.
+      const ip = (body.match(IP_RE) || [])[0] || null;
+      return {
+        reachable: true,
+        models: [],
+        loadedModel: null,
+        error: `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`,
+        detail: {
+          url,
+          status: res.status,
+          statusText: res.statusText || '',
+          contentType: res.headers.get('content-type') || '',
+          server: res.headers.get('server') || '',
+          detectedIp: ip,
+          body: body.slice(0, 4000),
+        },
+      };
     }
     const data = await res.json();
     const all = (data.data || []).map((m) => ({ id: m.id, state: m.state || null, type: m.type || null }));
@@ -37,7 +61,13 @@ export async function llmStatus(config) {
     const loaded = models.find((m) => m.state === 'loaded') || models[0] || null;
     return { reachable: true, models, loadedModel: loaded ? loaded.id : null };
   } catch (err) {
-    return { reachable: false, models: [], loadedModel: null, error: err.name === 'AbortError' ? 'LM Studio not reachable (timeout)' : err.message };
+    return {
+      reachable: false,
+      models: [],
+      loadedModel: null,
+      error: err.name === 'AbortError' ? 'LM Studio not reachable (timeout)' : err.message,
+      detail: { url, message: err.message, cause: err.cause ? String(err.cause) : '' },
+    };
   }
 }
 

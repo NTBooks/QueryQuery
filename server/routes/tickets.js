@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import repo from '../repo.js';
 import { STATUS_KEYS } from '../../shared/constants.js';
-import { getConfig, configHash, userDataDir } from '../configStore.js';
+import { getUserConfig, configHash, userDataDir } from '../configStore.js';
 import { analyze } from '../services/ingest.js';
 import { certifyText, resolveCredentials } from '../services/chainletter.js';
 import { bumpRevision } from '../services/revision.js';
@@ -44,7 +44,7 @@ function buildReply(t, cert) {
 }
 
 r.get('/', (req, res) => {
-  res.json({ tickets: repo.getAllByOwner(req.user.id), configHash: configHash() });
+  res.json({ tickets: repo.getAllByOwner(req.user.id), configHash: configHash(getUserConfig(req.user.id)) });
 });
 
 // Create a ticket from pasted text (analyze + persist).
@@ -53,7 +53,7 @@ r.post('/', (req, res) => {
   if (!text || !String(text).trim()) {
     return res.status(400).json({ error: 'Provide letter text.' });
   }
-  const config = getConfig();
+  const config = getUserConfig(req.user.id);
   const hash = configHash(config);
   const a = analyze(String(text), String(subject), config);
   const now = new Date().toISOString();

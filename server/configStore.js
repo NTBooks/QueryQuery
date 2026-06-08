@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DEFAULT_CONFIG } from '../shared/defaultConfig.js';
 import { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir, userInputDir, userDataDir, migrateLegacy } from '../paths.js';
+import repo from './repo.js';
 
 // Re-export so existing `import { ROOT } from '../configStore.js'` callers keep working.
 export { ROOT, PERSIST_DIR, CONFIG_PATH, inputDir, userInputDir, userDataDir };
@@ -59,6 +60,34 @@ export function setConfig(cfg) {
   current = mergeDefaults(cfg);
   saveConfig(current);
   return current;
+}
+
+/**
+ * Per-user scoring config ("what this person is looking for"). Falls back to the
+ * shared/global config until the user customizes it. The LLM block is always the
+ * global (admin) one, spliced in.
+ */
+export function getUserConfig(userId) {
+  const u = repo.getUserById(userId);
+  if (u && u.config) {
+    try {
+      const merged = mergeDefaults(JSON.parse(u.config));
+      merged.llm = getConfig().llm; // LLM is global/admin-managed
+      return merged;
+    } catch {
+      /* fall through to global */
+    }
+  }
+  return getConfig();
+}
+
+/** Save a user's scoring config. The LLM block is global, so it's stripped here. */
+export function setUserConfig(userId, cfg) {
+  const merged = mergeDefaults(cfg || {});
+  delete merged.llm;
+  repo.setUserConfig(userId, JSON.stringify(merged));
+  merged.llm = getConfig().llm;
+  return merged;
 }
 
 // --- Stable hash of the scoring-relevant config (drives "stale score" UI) ---

@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
-import { userInputDir } from '../configStore.js';
+import { userInputDir, getUserConfig, configHash } from '../configStore.js';
 import repo from '../repo.js';
 import parseEml, { buildSanitizedEml } from './emlParser.js';
 import extractComponents from './components.js';
@@ -79,8 +79,10 @@ async function archiveBatch(dir, items) {
   return { count: items.length, zip: zipName };
 }
 
-async function runIngestFolder(config, hash, ownerId) {
+async function runIngestFolder(ownerId) {
   if (!ownerId) return { scanned: 0, added: 0, updated: 0, errors: [], error: 'No owner' };
+  const config = getUserConfig(ownerId); // each user scores by their own config
+  const hash = configHash(config);
   const dir = userInputDir(config, ownerId);
   const summary = { scanned: 0, added: 0, updated: 0, errors: [], inputDir: dir };
 
@@ -110,7 +112,7 @@ async function runIngestFolder(config, hash, ownerId) {
       const now = new Date().toISOString();
       const row = toRow(parsed, file, analysis, hash, now);
 
-      const existing = repo.findByFile(file);
+      const existing = repo.findByFile(file, ownerId);
       if (existing) {
         repo.updateScores({ ...row, id: existing.id });
         summary.updated += 1;
@@ -129,7 +131,7 @@ async function runIngestFolder(config, hash, ownerId) {
     const arch = await archiveBatch(dir, processed);
     if (arch) {
       const now = new Date().toISOString();
-      for (const it of processed) repo.setArchiveZip(it.name, arch.zip, now);
+      for (const it of processed) repo.setArchiveZip(it.name, arch.zip, now, ownerId);
       summary.archived = arch;
     }
   }
@@ -140,16 +142,18 @@ async function runIngestFolder(config, hash, ownerId) {
 // Serialize ingest runs so concurrent triggers (scan + upload + watcher) can't
 // race on the same files (double-process / archive collisions).
 let ingestChain = Promise.resolve();
-export function ingestFolder(config, hash, ownerId) {
-  const run = () => runIngestFolder(config, hash, ownerId);
+export function ingestFolder(ownerId) {
+  const run = () => runIngestFolder(ownerId);
   const p = ingestChain.then(run, run);
   ingestChain = p.then(() => {}, () => {});
   return p;
 }
 
 /** Re-score a user's existing tickets from their stored body (no file re-read). */
-export function rescoreAll(config, hash, ownerId) {
-  const rows = ownerId ? repo.getRawAllByOwner(ownerId) : repo.getRawAll();
+export function rescoreAll(ownerId) {
+  const config = getUserConfig(ownerId);
+  const hash = configHash(config);
+  const rows = repo.getRawAllByOwner(ownerId);
   let updated = 0;
   for (const r of rows) {
     const analysis = analyze(r.body || '', r.subject || '', config);

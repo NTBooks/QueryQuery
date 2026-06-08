@@ -75,6 +75,10 @@ db.exec(`
   );
 `);
 
+// Per-user scoring config ("what each person is looking for").
+const ucols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!ucols.includes('config')) db.exec('ALTER TABLE users ADD COLUMN config TEXT');
+
 // Seed a default admin (admin / admin) on first run.
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 let adminId;
@@ -89,5 +93,44 @@ if (userCount === 0) {
 
 // Backfill ownerless (pre-multi-user) tickets to the admin.
 if (adminId) db.prepare('UPDATE tickets SET owner_id=? WHERE owner_id IS NULL').run(adminId);
+
+// One-time rebuild: replace the GLOBAL `source_file UNIQUE` with a per-user
+// UNIQUE(owner_id, source_file) so two users can import identical filenames.
+const hasComposite = db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='uniq_owner_source'").get();
+if (!hasComposite) {
+  const rebuild = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE tickets_new (
+        id INTEGER PRIMARY KEY,
+        source_file TEXT,
+        from_addr TEXT, from_name TEXT, subject TEXT, received_at TEXT, body TEXT,
+        components TEXT, score INTEGER, score_band TEXT, breakdown TEXT,
+        ai_suspicion INTEGER, ai_disclosed INTEGER DEFAULT 0, cliche_score INTEGER,
+        status TEXT DEFAULT 'did_not_review', llm_summary TEXT, llm_triage TEXT,
+        config_hash TEXT, created_at TEXT, updated_at TEXT, llm_extract TEXT,
+        cl_cid TEXT, cl_stamped INTEGER DEFAULT 0, cl_stamped_at TEXT, cl_result TEXT,
+        archive_zip TEXT, owner_id TEXT,
+        archived_iteration INTEGER, archive_comment TEXT, archived_at TEXT
+      );
+    `);
+    db.exec(`
+      INSERT INTO tickets_new
+        (id, source_file, from_addr, from_name, subject, received_at, body, components, score, score_band, breakdown,
+         ai_suspicion, ai_disclosed, cliche_score, status, llm_summary, llm_triage, config_hash, created_at, updated_at,
+         llm_extract, cl_cid, cl_stamped, cl_stamped_at, cl_result, archive_zip, owner_id, archived_iteration, archive_comment, archived_at)
+      SELECT
+        id, source_file, from_addr, from_name, subject, received_at, body, components, score, score_band, breakdown,
+        ai_suspicion, ai_disclosed, cliche_score, status, llm_summary, llm_triage, config_hash, created_at, updated_at,
+        llm_extract, cl_cid, cl_stamped, cl_stamped_at, cl_result, archive_zip, owner_id, archived_iteration, archive_comment, archived_at
+      FROM tickets;
+    `);
+    db.exec('DROP TABLE tickets;');
+    db.exec('ALTER TABLE tickets_new RENAME TO tickets;');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_band ON tickets(score_band);');
+    db.exec('CREATE UNIQUE INDEX uniq_owner_source ON tickets(owner_id, source_file);');
+  });
+  rebuild();
+}
 
 export default db;

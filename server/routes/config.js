@@ -1,21 +1,20 @@
 import { Router } from 'express';
-import { getConfig, setConfig, configHash } from '../configStore.js';
-import { requireAdmin } from '../auth.js';
+import { getUserConfig, setUserConfig, configHash } from '../configStore.js';
 
 const r = Router();
 
+// Each user has their own scoring config ("what I'm looking for").
 r.get('/', (req, res) => {
-  const config = getConfig();
+  const config = getUserConfig(req.user.id);
   res.json({ config, configHash: configHash(config) });
 });
 
-// The shared scoring + LLM config is admin-managed.
-r.put('/', requireAdmin, (req, res) => {
+r.put('/', (req, res) => {
   const incoming = req.body?.config ?? req.body;
   if (!incoming || typeof incoming !== 'object') {
     return res.status(400).json({ error: 'Invalid config payload' });
   }
-  const saved = setConfig(incoming);
+  const saved = setUserConfig(req.user.id, incoming);
   res.json({ config: saved, configHash: configHash(saved) });
 });
 

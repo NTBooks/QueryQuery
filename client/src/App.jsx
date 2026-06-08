@@ -277,7 +277,7 @@ export default function App() {
               Settings
             </MenuButton>
             <MenuList>
-              {user.role === 'admin' && <MenuItem icon={<FiSliders />} onClick={() => setView('config')}>Configuration</MenuItem>}
+              <MenuItem icon={<FiSliders />} onClick={() => setView('config')}>Configuration</MenuItem>
               {user.role === 'admin' && <MenuItem icon={<FiCpu />} onClick={() => setView('settings')}>Local LLM</MenuItem>}
               <MenuItem icon={<ClGlyph />} onClick={() => setView('chainletter')}>Chainletter</MenuItem>
             </MenuList>
@@ -316,7 +316,7 @@ export default function App() {
         )}
         {view === 'settings' && (
           <Box h="100%" overflowY="auto" p={6}>
-            <LlmPanel config={config} onSaveConfig={saveConfig} />
+            <LlmPanel />
           </Box>
         )}
         {view === 'chainletter' && (

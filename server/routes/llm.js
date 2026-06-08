@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import repo from '../repo.js';
-import { getConfig } from '../configStore.js';
+import { getConfig, setConfig } from '../configStore.js';
+import { requireAdmin } from '../auth.js';
 import { llmStatus, chatComplete, describeLlmError } from '../services/lmstudio.js';
 import { extractComponents } from '../services/components.js';
 
@@ -8,6 +9,15 @@ const r = Router();
 
 r.get('/status', async (req, res) => {
   res.json(await llmStatus(getConfig()));
+});
+
+// The LLM connection is GLOBAL (admin-managed); everyone uses the same model.
+r.get('/config', (req, res) => res.json({ llm: getConfig().llm }));
+r.put('/config', requireAdmin, (req, res) => {
+  const llm = req.body?.llm || req.body || {};
+  const cfg = getConfig();
+  const saved = setConfig({ ...cfg, llm: { ...cfg.llm, ...llm } });
+  res.json({ llm: saved.llm });
 });
 
 // Resolve which model to use: explicit request > configured > whatever LM Studio has loaded.

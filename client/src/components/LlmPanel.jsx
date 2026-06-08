@@ -1,21 +1,53 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Heading, Text, VStack, HStack, FormControl, FormLabel, FormHelperText, Input, Switch,
-  Button, Select, Alert, AlertIcon, Badge, Divider, Flex, Spacer, useToast, Code,
+  Button, Select, Alert, AlertIcon, Badge, Divider, Flex, Spacer, useToast, Code, useClipboard,
 } from '@chakra-ui/react';
-import { FiRefreshCw } from 'react-icons/fi';
+import { FiRefreshCw, FiCopy } from 'react-icons/fi';
 import api from '../api.js';
 
-export default function LlmPanel({ config, onSaveConfig }) {
+function LlmError({ status }) {
+  const d = status.detail || {};
+  const respText = d.body || d.message || JSON.stringify(d, null, 2);
+  const { onCopy, hasCopied } = useClipboard(respText || '');
+  return (
+    <Alert status="error" borderRadius="md" flexDirection="column" alignItems="stretch" gap={2} fontSize="sm">
+      <HStack><AlertIcon /><Text fontWeight="600">{status.reachable ? `Request failed: ${status.error}` : `Not reachable — ${status.error || 'is the server running?'}`}</Text></HStack>
+      {d.detectedIp && (
+        <Text pl={6}>
+          Looks like an IP allow-list block. Add this IP to the allow-list: <Code colorScheme="red" fontWeight="700">{d.detectedIp}</Code>
+        </Text>
+      )}
+      {(d.url || d.status || d.contentType || d.server) && (
+        <Text pl={6} fontSize="xs" color="gray.700">
+          {d.status ? `${d.status} ${d.statusText || ''} · ` : ''}{d.contentType || ''}{d.server ? ` · server: ${d.server}` : ''}
+          {d.url ? <Text as="span" color="gray.500"> · {d.url}</Text> : null}
+        </Text>
+      )}
+      {respText && (
+        <Box pl={6}>
+          <HStack justify="space-between" mb={1}>
+            <Text fontSize="xs" color="gray.600">Full response</Text>
+            <Button size="xs" variant="outline" leftIcon={<FiCopy />} onClick={onCopy}>{hasCopied ? 'Copied' : 'Copy'}</Button>
+          </HStack>
+          <Code display="block" whiteSpace="pre-wrap" wordBreak="break-word" fontSize="xs" maxH="240px" overflowY="auto" p={2} w="100%">
+            {respText}
+          </Code>
+        </Box>
+      )}
+    </Alert>
+  );
+}
+
+const DEFAULT_LLM = { enabled: false, baseUrl: 'http://127.0.0.1:1234/v1', model: '', apiKey: 'lm-studio' };
+
+export default function LlmPanel() {
   const toast = useToast();
-  const [llm, setLlm] = useState(() => ({ ...config.llm }));
+  const [llm, setLlm] = useState(DEFAULT_LLM);
+  const [loaded, setLoaded] = useState(null);
   const [status, setStatus] = useState(null);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const dirty = ['enabled', 'baseUrl', 'model', 'apiKey'].some(
-    (k) => (llm[k] ?? '') !== (config.llm?.[k] ?? '')
-  );
 
   const check = async () => {
     setChecking(true);
@@ -29,16 +61,24 @@ export default function LlmPanel({ config, onSaveConfig }) {
     }
   };
 
-  useEffect(() => { check(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    api.getLlmConfig()
+      .then(({ llm: l }) => { const v = { ...DEFAULT_LLM, ...(l || {}) }; setLoaded(v); setLlm(v); })
+      .catch(() => setLoaded(DEFAULT_LLM));
+    check();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dirty = loaded && ['enabled', 'baseUrl', 'model', 'apiKey'].some((k) => (llm[k] ?? '') !== (loaded[k] ?? ''));
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSaveConfig({ ...config, llm });
+      const { llm: l } = await api.saveLlmConfig(llm);
+      setLoaded({ ...DEFAULT_LLM, ...l });
       toast({ title: 'LLM settings saved', status: 'success' });
       check();
-    } catch {
-      /* handled upstream */
+    } catch (e) {
+      toast({ title: 'Save failed', description: e.message, status: 'error' });
     } finally {
       setSaving(false);
     }
@@ -83,14 +123,14 @@ export default function LlmPanel({ config, onSaveConfig }) {
           </Flex>
 
           {status && (
-            status.reachable ? (
+            status.reachable && !status.error ? (
               models.length ? (
                 <Alert status="success" borderRadius="md"><AlertIcon />Connected. {models.length} model(s) available.</Alert>
               ) : (
                 <Alert status="warning" borderRadius="md"><AlertIcon />Reachable, but no model is loaded. Load one in LM Studio.</Alert>
               )
             ) : (
-              <Alert status="error" borderRadius="md"><AlertIcon />Not reachable. {status.error || 'Is the LM Studio server running?'}</Alert>
+              <LlmError status={status} />
             )
           )}
 

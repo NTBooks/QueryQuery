@@ -2,7 +2,7 @@
 // then notifies open browsers via SSE. No mailbox access, no credentials — it
 // only ever sees files the user deliberately puts in the folder.
 import fs from 'node:fs';
-import { getConfig, configHash, inputDir } from '../configStore.js';
+import { getConfig, inputDir } from '../configStore.js';
 import { ingestFolder } from './ingest.js';
 import { bumpRevision } from './revision.js';
 import repo from '../repo.js';
@@ -24,12 +24,10 @@ async function runIngest() {
   }
   running = true;
   try {
-    const config = getConfig();
-    const hash = configHash(config);
-    // Each user has their own input subfolder; re-ingest every user's folder.
+    // Each user has their own input subfolder + their own scoring config.
     let changed = 0;
     for (const u of repo.listUsers()) {
-      const s = await ingestFolder(config, hash, u.id);
+      const s = await ingestFolder(u.id);
       changed += (s.added || 0) + (s.updated || 0);
     }
     if (changed > 0) bumpRevision();

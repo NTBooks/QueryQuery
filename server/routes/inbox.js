@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfig, configHash, userInputDir } from '../configStore.js';
+import { getConfig, userInputDir } from '../configStore.js';
 import { ingestFolder } from '../services/ingest.js';
 import { bumpRevision } from '../services/revision.js';
 
@@ -79,7 +79,7 @@ r.post('/upload', async (req, res) => {
     }
   }
 
-  const summary = await ingestFolder(config, configHash(config), req.user.id);
+  const summary = await ingestFolder(req.user.id);
   bumpRevision();
   res.json({ written, errors, ...summary });
 });
