@@ -72,12 +72,16 @@ export default function Board({ meta, config, tickets, staleCount = 0, busy, onS
     return (
       <Flex h="100%" align="center" justify="center" direction="column" gap={4} color="gray.500">
         <FiInbox size={48} />
-        <Heading size="md">No queries yet</Heading>
-        <Text><b>Drag <code>.eml</code> files anywhere onto this window</b> — or drop them in the input folder and scan.</Text>
+        <Heading size="md">No queries on the board</Heading>
+        <Text textAlign="center"><b>Drag <code>.eml</code> files anywhere onto this window</b> — or drop them in the input folder and scan.</Text>
         <HStack>
           <Button leftIcon={<FiInbox />} onClick={onScan}>Scan Inbox</Button>
+          <Button leftIcon={<FiFilePlus />} variant="outline" colorScheme="gray" onClick={onPaste}>Paste a letter</Button>
           <Button leftIcon={<FiFolder />} variant="outline" colorScheme="gray" onClick={onShowFolder}>Where do files go?</Button>
         </HStack>
+        <Button leftIcon={<FiArchive />} variant="ghost" colorScheme="gray" onClick={onArchive}>
+          Archived items — view &amp; restore
+        </Button>
       </Flex>
     );
   }
