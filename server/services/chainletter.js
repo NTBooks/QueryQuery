@@ -309,7 +309,8 @@ export async function testConnection(clStore) {
   try {
     cl = await resolveCredentials(clStore);
   } catch (e) {
-    return { ok: false, message: e.message };
+    // 410 = the single-use token link was already claimed → user needs a fresh one.
+    return { ok: false, message: e.message, needsFreshToken: e.status === 410 };
   }
   const base = { tenant: cl.tenant, folder: cl.groupId, expires: cl.expires, status: cl.status };
   try {
@@ -318,7 +319,7 @@ export async function testConnection(clStore) {
       return { ok: false, message: `That URL serves a web page, not the webhook API (${serverHost(cl.webhookUrl)}).`, ...base };
     }
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, message: 'Webhook rejected the credentials — the token may have expired; paste a fresh token URL.', ...base };
+      return { ok: false, message: 'Webhook rejected the credentials — the token may have expired; paste a fresh token URL.', needsFreshToken: true, ...base };
     }
     // 200 / 404 / 400 all mean we reached an authenticated API endpoint.
     if (res.ok || res.status === 404 || res.status === 400) {

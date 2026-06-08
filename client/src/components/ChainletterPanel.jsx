@@ -96,8 +96,13 @@ export default function ChainletterPanel() {
             <Button size="sm" leftIcon={<FiRefreshCw />} variant="outline" colorScheme="gray" onClick={test} isLoading={testing} isDisabled={!cl.tokenUrl}>Test</Button>
           </Flex>
           {status && (
-            <Alert status={status.ok ? 'success' : 'error'} borderRadius="md" fontSize="sm" py={2} flexDirection="column" alignItems="stretch" gap={2}>
-              <HStack><AlertIcon />{status.message}</HStack>
+            <Alert status={status.ok ? 'success' : status.needsFreshToken ? 'warning' : 'error'} borderRadius="md" fontSize="sm" py={2} flexDirection="column" alignItems="stretch" gap={2}>
+              <HStack><AlertIcon />{status.message || (status.ok ? 'Connected.' : 'Connection test failed (no detail returned — the server build may be out of date).')}</HStack>
+              {status.needsFreshToken && (
+                <Text pl={6} fontSize="xs" color="gray.700">
+                  Chainletter token links are <b>single-use</b>. Grab a fresh one from your Chainletter account, paste it above, then <b>Test</b> again.
+                </Text>
+              )}
               {status.tenant && (
                 <SimpleGrid columns={2} spacing={1} fontSize="xs" pl={6} color="gray.700">
                   <Text>Tenant: <b>{status.tenant}</b></Text>
