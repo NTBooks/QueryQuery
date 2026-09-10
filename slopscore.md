@@ -6,6 +6,7 @@ content_rating: everyone
 contains: [scraping]
 category: [productivity, web-app, data]
 status: works-on-my-machine
+tagline: Local, heuristic triage for literary query letters. A slush-pile ticketing system that needs no AI (a local model is optional).
 interface: [web]
 frameworks: [react, vite, express, chakra-ui]
 platforms: [windows, linux, macos, docker]
